@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/TV_titulo_t11"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context=".Tela01">
+
+    <Button
+        android:id="@+id/BT_chamarTela01"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Chamar tela 01"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/TV_titulo_t2"
+        app:layout_constraintVertical_bias="0.22" />
+
+    <TextView
+        android:id="@+id/TV_titulo_t2"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Tela2"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintVertical_bias="0.273" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>
