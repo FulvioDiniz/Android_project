@@ -30,10 +30,19 @@ type Revisao = {
   origem?: string;
 };
 
+type ComparacaoRede = {
+  codigo_quadro: string;
+  pasta: string;
+  arquivo: string;
+  alterado_em: string;
+  resultado: string;
+};
+
 type PastaRede = {
   acessivel: boolean;
   mensagem: string;
   caminho: string;
+  comparacoes?: ComparacaoRede[];
 };
 
 type Duvida = {
@@ -679,6 +688,19 @@ export function App() {
             <p>A fila inteira. O envio do painel e a pasta de rede criam pendente. Nenhum dos dois publica.</p>
             {pastaRede && !pastaRede.acessivel ? <p className="aviso">Pasta de rede indisponível.</p> : null}
             {pastaRede?.acessivel ? <p className="ok">A pasta de rede está acessível.</p> : null}
+            <h2>Comparação com a pasta</h2>
+            <div className="lista-cartoes">
+              {(pastaRede?.comparacoes ?? []).length === 0 ? <p>Nenhuma comparação nesta leitura.</p> : null}
+              {(pastaRede?.comparacoes ?? []).map((item) => (
+                <article key={`${item.pasta}/${item.arquivo}`} className="bloco">
+                  <p className="codigo-menor">{item.codigo_quadro || "Sem código"}</p>
+                  <p>Pasta: {item.pasta}</p>
+                  <p>Arquivo: {item.arquivo}</p>
+                  <p>Alteração: {horaBrasil(item.alterado_em)}</p>
+                  <p>{item.resultado}</p>
+                </article>
+              ))}
+            </div>
             <div className="lista-cartoes">
               {revisoes.length === 0 ? <p>Nenhuma revisão.</p> : null}
               {revisoes.map((item) => (
