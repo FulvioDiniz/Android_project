@@ -1,8 +1,13 @@
 :root {
-  color: #141414;
-  background: #f4f1ea;
-  font-family: "Segoe UI", sans-serif;
-  font-size: 18px;
+  color: #1a1d23;
+  background: #f4f5f7;
+  font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.45;
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
@@ -10,72 +15,93 @@ body {
 }
 
 main {
-  max-width: 960px;
+  max-width: 1080px;
   margin: 0 auto;
-  padding: 24px 24px 64px;
+  padding: 32px 28px 80px;
 }
 
 .topo {
   position: sticky;
   top: 0;
   z-index: 2;
-  background: #141414;
-  color: #fff;
-  padding: 16px 24px 8px;
+  background: #fff;
+  color: #1a1d23;
+  border-bottom: 1px solid #e4e6eb;
+  padding: 16px 28px 12px;
 }
 
 .topo strong {
-  font-size: 22px;
+  font-size: 18px;
+  letter-spacing: 0.02em;
 }
 
 .topo nav {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: 14px;
 }
 
 .topo button {
   margin: 0;
-  min-height: 48px;
+  min-height: 44px;
+  padding: 8px 16px;
+  border: 1px solid #e4e6eb;
+  border-radius: 10px;
   background: #fff;
-  color: #141414;
+  color: #1a1d23;
 }
 
 .topo button.ativo {
-  background: #f4c430;
-  color: #141414;
+  background: #e6a817;
+  border-color: #e6a817;
+  color: #1a1d23;
 }
 
 .topo .quem {
-  margin: 10px 0 4px;
-  font-size: 16px;
+  margin: 12px 0 0;
+  font-size: 14px;
+  color: #1a1d23;
 }
 
 h1 {
-  font-size: 28px;
-  margin-bottom: 8px;
+  font-size: 32px;
+  line-height: 1.15;
+  margin: 0 0 8px;
+  font-weight: 700;
+}
+
+h2 {
+  font-size: 20px;
+  margin: 0 0 8px;
+}
+
+.intro {
+  margin: 0 0 20px;
+  color: #1a1d23;
 }
 
 label {
   display: block;
   font-weight: 600;
-  margin-top: 12px;
+  margin-top: 16px;
 }
 
 input {
   width: 100%;
-  box-sizing: border-box;
-  font-size: 18px;
-  padding: 12px;
-  margin-top: 4px;
-  border: 2px solid #141414;
+  font: inherit;
+  padding: 12px 14px;
+  margin-top: 6px;
+  border: 1px solid #e4e6eb;
+  border-radius: 10px;
   background: #fff;
+  color: #1a1d23;
 }
 
 button,
 select {
-  font-size: 18px;
+  font: inherit;
   min-height: 48px;
 }
 
@@ -83,38 +109,41 @@ button {
   padding: 12px 18px;
   margin-top: 16px;
   margin-right: 8px;
-  border: 2px solid #141414;
-  background: #141414;
+  border: 1px solid #1a1d23;
+  border-radius: 10px;
+  background: #1a1d23;
   color: #fff;
   cursor: pointer;
 }
 
 select {
   width: 100%;
-  box-sizing: border-box;
-  margin-top: 4px;
-  padding: 8px 12px;
-  border: 2px solid #141414;
+  margin-top: 6px;
+  padding: 10px 12px;
+  border: 1px solid #e4e6eb;
+  border-radius: 10px;
   background: #fff;
+  color: #1a1d23;
 }
 
 button.secundario {
   background: #fff;
-  color: #141414;
+  color: #1a1d23;
+  border-color: #e4e6eb;
 }
 
-.aviso {
-  padding: 12px;
-  border: 2px solid #8a3b12;
-  background: #fff4ec;
-  margin: 12px 0;
+.aviso,
+.ok,
+.vazio {
+  padding: 16px 18px;
+  border: 1px solid #e4e6eb;
+  border-radius: 12px;
+  background: #fff;
+  margin: 16px 0;
 }
 
 .ok {
-  padding: 12px;
-  border: 2px solid #1d6b3a;
-  background: #eef8f1;
-  margin: 12px 0;
+  border-color: #c9ddd0;
 }
 
 table {
@@ -122,87 +151,122 @@ table {
   border-collapse: collapse;
   margin-top: 16px;
   background: #fff;
+  border: 1px solid #e4e6eb;
+  border-radius: 12px;
+  overflow: hidden;
 }
 
 th,
 td {
   text-align: left;
-  border-bottom: 1px solid #ccc;
-  padding: 12px 8px;
+  border-bottom: 1px solid #e4e6eb;
+  padding: 14px 16px;
+  vertical-align: middle;
 }
 
-.bloco {
+.bloco,
+.zona-envio {
   margin-top: 20px;
-  padding: 16px;
+  padding: 24px;
   background: #fff;
-  border: 2px solid #141414;
+  border: 1px solid #e4e6eb;
+  border-radius: 16px;
 }
 
-.destaque {
-  background: #fff8dc;
+.vigente-bloco .selo,
+.vigente-bloco .selo-vazio {
+  margin-top: 8px;
 }
 
-.grade,
-.lista-cartoes {
+.lista-quadros {
   display: grid;
   gap: 12px;
 }
 
-.cartao {
-  display: block;
-  width: 100%;
-  text-align: left;
+.linha-quadro {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 24px;
+  padding: 20px 22px;
   background: #fff;
-  color: #141414;
+  border: 1px solid #e4e6eb;
+  border-radius: 16px;
+}
+
+.linha-quadro button {
   margin: 0;
 }
 
-.codigo {
+.linha-sec {
   display: block;
-  font-size: 32px;
+  margin-top: 6px;
+  font-size: 15px;
+}
+
+.selo,
+.selo-vazio {
+  display: inline-block;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 22px;
   font-weight: 700;
-  line-height: 1.2;
+  line-height: 1;
+  color: #1a1d23;
+  white-space: nowrap;
 }
 
-.codigo-menor {
-  font-size: 24px;
-  font-weight: 700;
-  margin-bottom: 4px;
+.selo {
+  background: #e6a817;
 }
 
-.vigente {
-  font-size: 40px;
-  font-weight: 700;
-  margin: 8px 0;
+.selo-vazio {
+  background: #fff;
+  border: 1px solid #e4e6eb;
 }
 
-.vigente-lista {
-  display: block;
-  font-size: 28px;
-  font-weight: 700;
-  margin: 8px 0;
+.zona-envio p {
+  margin: 0 0 16px;
+  max-width: 62ch;
 }
 
-.miudo {
-  display: block;
-  font-weight: 400;
-}
-
-.escolher {
+.zona-arquivo {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 12px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  min-height: 220px;
+  margin-top: 8px;
+  padding: 36px 28px;
+  border: 1px dashed #e4e6eb;
+  border-radius: 16px;
+  background: #f4f5f7;
+  cursor: pointer;
+}
+
+.zona-rotulo {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.zona-nome {
+  font-size: 22px;
+  font-weight: 700;
 }
 
 .botao-arquivo {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
   min-height: 48px;
-  line-height: 48px;
+  margin-top: 8px;
   padding: 0 18px;
+  border: 1px solid #1a1d23;
+  border-radius: 10px;
   background: #fff;
-  color: #141414;
-  border: 2px solid #141414;
+  color: #1a1d23;
+  font-weight: 700;
 }
 
 .arquivo-escondido {
@@ -216,6 +280,47 @@ td {
   border: 0;
 }
 
+.codigo {
+  display: block;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.codigo-menor {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+
+.vigente {
+  font-size: 36px;
+  font-weight: 700;
+  margin: 8px 0;
+}
+
+.miudo {
+  display: block;
+  margin-top: 4px;
+}
+
+.grade,
+.lista-cartoes {
+  display: grid;
+  gap: 12px;
+}
+
+.cartao {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: #fff;
+  color: #1a1d23;
+  margin: 0;
+  border: 1px solid #e4e6eb;
+  border-radius: 16px;
+}
+
 .lista {
   padding-left: 20px;
 }
@@ -223,8 +328,8 @@ td {
 .eventos li {
   display: grid;
   gap: 2px;
-  padding: 12px 0;
-  border-bottom: 1px solid #ccc;
+  padding: 14px 0;
+  border-bottom: 1px solid #e4e6eb;
   list-style: none;
 }
 
@@ -235,5 +340,16 @@ td {
 .item + .item {
   margin-top: 16px;
   padding-top: 16px;
-  border-top: 1px solid #ccc;
+  border-top: 1px solid #e4e6eb;
+}
+
+.acoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.acoes button {
+  margin: 0;
 }

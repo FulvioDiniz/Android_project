@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -40,9 +42,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -74,12 +80,12 @@ private enum class Aba(val rotulo: String) {
     Historico("Histórico"),
 }
 
-private val Fundo = Color(0xFFF3F1EB)
+private val Fundo = Color(0xFFF4F5F7)
 private val Branco = Color.White
-private val Preto = Color(0xFF111111)
-private val Cinza = Color(0xFF4A4A4A)
-private val Borda = Color(0xFFE2DDD4)
-private val Amarelo = Color(0xFFFFE14A)
+private val Preto = Color(0xFF1A1D23)
+private val Cinza = Color(0xFF1A1D23)
+private val Borda = Color(0xFFE4E6EB)
+private val Amarelo = Color(0xFFE6A817)
 private val Forma = RoundedCornerShape(18.dp)
 private val FormaSelo = RoundedCornerShape(12.dp)
 
@@ -378,9 +384,12 @@ private fun CartaoQuadro(quadro: QuadroLocal, etapa: String, aoAbrir: () -> Unit
     ) {
         Text(quadro.codigo, color = Preto, fontSize = 34.sp, fontWeight = FontWeight.Bold)
         Selo(quadro)
-        Text(quadro.clienteNome.ifBlank { "Sem cliente" }, color = Preto, fontSize = 20.sp)
-        Text("OP ${quadro.ordemNumero.ifBlank { "sem número" }}", color = Preto, fontSize = 20.sp)
-        Text("Etapa $etapa", color = Preto, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+        Text(
+            "${quadro.clienteNome.ifBlank { "Sem cliente" }} · OP ${quadro.ordemNumero.ifBlank { "sem número" }}",
+            color = Preto,
+            fontSize = 16.sp,
+        )
+        Text("Etapa $etapa", color = Preto, fontSize = 16.sp)
         if (quadro.responsavelNome.isNotBlank()) {
             Text(quadro.responsavelNome, color = Cinza, fontSize = 18.sp)
         }
@@ -730,11 +739,23 @@ private fun Visualizador(quadro: QuadroLocal, telaCheia: Boolean, aoTelaCheia: (
 
 @Composable
 private fun Vazio(titulo: String, servidor: String, detalhe: String) {
-    Cartao {
-        Text(titulo, color = Preto, fontSize = 32.sp, fontWeight = FontWeight.Bold)
-        Text(detalhe, color = Preto, fontSize = 18.sp)
-        Text("Servidor", color = Cinza, fontSize = 16.sp)
-        Text(servidor, color = Preto, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(top = 36.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Box(
+            modifier = Modifier.size(72.dp).clip(Forma).background(Branco).border(1.dp, Borda, Forma),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("—", color = Preto, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+        }
+        Cartao {
+            Text(titulo, color = Preto, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+            Text(detalhe, color = Preto, fontSize = 18.sp)
+            Text("Servidor", color = Preto, fontSize = 14.sp)
+            Text(servidor, color = Preto, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        }
     }
 }
 
@@ -861,15 +882,59 @@ private fun Barra(aba: Aba, aoEscolher: (Aba) -> Unit) {
     ) {
         Aba.entries.forEach { item ->
             val ativa = aba == item
-            Box(
+            Column(
                 modifier = Modifier
                     .weight(1f)
-                    .height(76.dp)
+                    .height(88.dp)
                     .background(if (ativa) Amarelo else Branco)
                     .clickable { aoEscolher(item) },
-                contentAlignment = Alignment.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
             ) {
-                Text(item.rotulo, color = Preto, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                IconeAba(item)
+                Text(item.rotulo, color = Preto, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun IconeAba(aba: Aba) {
+    Canvas(Modifier.size(22.dp).padding(bottom = 4.dp)) {
+        val traco = Stroke(width = 1.7.dp.toPx())
+        val canto = CornerRadius(2.dp.toPx())
+        when (aba) {
+            Aba.Quadros -> {
+                val folga = 3.dp.toPx()
+                val lado = (size.width - folga) / 2f
+                repeat(2) { coluna ->
+                    repeat(2) { linha ->
+                        drawRoundRect(
+                            color = Preto,
+                            topLeft = Offset(coluna * (lado + folga), linha * (lado + folga)),
+                            size = Size(lado, lado),
+                            cornerRadius = canto,
+                            style = traco,
+                        )
+                    }
+                }
+            }
+            Aba.Pdf -> {
+                drawRoundRect(color = Preto, cornerRadius = CornerRadius(3.dp.toPx()), style = traco)
+                val esquerda = size.width * 0.22f
+                val direita = size.width * 0.78f
+                listOf(0.34f, 0.5f, 0.66f).forEach { y ->
+                    drawLine(Preto, Offset(esquerda, size.height * y), Offset(direita, size.height * y), strokeWidth = 1.7.dp.toPx())
+                }
+            }
+            Aba.Diario -> {
+                drawRoundRect(color = Preto, cornerRadius = CornerRadius(3.dp.toPx()), style = traco)
+                drawLine(Preto, Offset(size.width * 0.28f, 0f), Offset(size.width * 0.28f, size.height), strokeWidth = 1.7.dp.toPx())
+            }
+            Aba.Historico -> {
+                drawCircle(color = Preto, style = traco)
+                drawLine(Preto, Offset(size.width / 2f, size.height * 0.28f), Offset(size.width / 2f, size.height / 2f), strokeWidth = 1.7.dp.toPx())
+                drawLine(Preto, Offset(size.width / 2f, size.height / 2f), Offset(size.width * 0.7f, size.height * 0.62f), strokeWidth = 1.7.dp.toPx())
             }
         }
     }

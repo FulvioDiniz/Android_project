@@ -438,27 +438,32 @@ export function App() {
         {tela === "quadros" ? (
           <>
             <h1>Quadros</h1>
-            <p>Toque no código para abrir o quadro. A revisão grande é a vigente.</p>
-            <div className="grade">
+            <p className="intro">A revisão no selo é a vigente. Abrir o quadro não publica.</p>
+            <div className="lista-quadros">
+              {quadros.length === 0 ? <p className="vazio">Nenhum quadro nesta lista.</p> : null}
               {quadros.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className="cartao"
-                  onClick={() => {
-                    setQuadroId(item.id);
-                    setMotivoCancelamento("");
-                    setTela("quadro");
-                  }}
-                >
-                  <span className="codigo">{item.codigo}</span>
-                  <span className="vigente-lista">
+                <article key={item.id} className="linha-quadro">
+                  <div>
+                    <span className="codigo">{item.codigo}</span>
+                    <span className="linha-sec">
+                      {item.cliente_nome} · OP {item.ordem_numero}
+                    </span>
+                  </div>
+                  <span className={item.revisao_vigente_codigo ? "selo" : "selo selo-vazio"}>
                     {item.revisao_vigente_codigo ? `Rev ${item.revisao_vigente_codigo}` : "Sem vigente"}
                   </span>
-                  <span className="miudo">
-                    {item.titulo} · {item.cliente_nome}
-                  </span>
-                </button>
+                  <button
+                    type="button"
+                    className="secundario"
+                    onClick={() => {
+                      setQuadroId(item.id);
+                      setMotivoCancelamento("");
+                      setTela("quadro");
+                    }}
+                  >
+                    Abrir
+                  </button>
+                </article>
               ))}
             </div>
             {engenharia ? (
@@ -495,21 +500,25 @@ export function App() {
             <p className="miudo">
               {quadro.titulo} · {quadro.cliente_nome} · {quadro.ordem_numero}
             </p>
-            <section className="bloco destaque">
+            <section className="bloco vigente-bloco">
               <h2>Vigente</h2>
-              <p className="vigente">
-                {quadro.revisao_vigente_codigo ? `Rev ${quadro.revisao_vigente_codigo}` : "Nenhuma revisão publicada"}
+              <p className={quadro.revisao_vigente_codigo ? "selo" : "selo selo-vazio"}>
+                {quadro.revisao_vigente_codigo ? `Rev ${quadro.revisao_vigente_codigo}` : "Sem vigente"}
               </p>
               <p>O envio do PDF não troca esta revisão. Só o botão Publicar faz isso.</p>
             </section>
 
             {engenharia ? (
-              <form className="bloco" onSubmit={enviarPdf}>
-                <h2>Enviar PDF</h2>
-                <p>O arquivo entra como pendente. Este botão não publica.</p>
-                <label className="escolher">
+              <form className="zona-envio" onSubmit={enviarPdf}>
+                <h2>Colocar o projeto</h2>
+                <p>
+                  O nome do arquivo segue o padrão <strong>CODIGO-REV.X.pdf</strong>, por exemplo{" "}
+                  <strong>PED-DEL-01890-2026-16-REV.C.pdf</strong>. O envio grava a revisão como pendente.
+                </p>
+                <label className="zona-arquivo">
+                  <span className="zona-rotulo">PDF do projeto</span>
+                  <span className="zona-nome">{arquivo ? arquivo.name : "Nenhum PDF escolhido"}</span>
                   <span className="botao-arquivo">Escolher PDF</span>
-                  <span>{arquivo ? arquivo.name : "Nenhum arquivo escolhido"}</span>
                   <input
                     className="arquivo-escondido"
                     type="file"
