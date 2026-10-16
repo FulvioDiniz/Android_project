@@ -44,9 +44,45 @@ export function App() {
   const [codigo, setCodigo] = useState("PED-DEL-01890-2026-16");
   const [titulo, setTitulo] = useState("");
   const [aviso, setAviso] = useState("");
+  const [arquivo, setArquivo] = useState<File | null>(null);
+  const [pendentes, setPendentes] = useState<{ id: string; codigo: string; quadro_codigo: string; status: string }[]>([]);
+  const [erros, setErros] = useState<{ id: string; nome_original: string; motivo: string }[]>([]);
 
   async function carregar(token: string) {
     setQuadros(await api<Quadro[]>("/api/quadros", token));
+    try {
+      setPendentes(await api("/api/revisoes?status=pendente", token));
+      setErros(await api("/api/erros-importacao?status=aberto", token));
+    } catch {
+      setPendentes([]);
+      setErros([]);
+    }
+  }
+
+  async function enviarPdf(evento: FormEvent) {
+    evento.preventDefault();
+    if (!sessao || !arquivo) return;
+    setAviso("");
+    setErro("");
+    const dados = new FormData();
+    dados.append("arquivo", arquivo);
+    const resposta = await fetch("/api/projetos", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${sessao.token}` },
+      body: dados,
+    });
+    const corpo = await resposta.json();
+    if (!resposta.ok && resposta.status !== 202) {
+      setErro(corpo.mensagem ?? "O PDF não entrou.");
+      return;
+    }
+    if (corpo.status === "pendente") {
+      setAviso(`Revisão ${corpo.codigo ?? ""} pendente. O ponteiro vigente não mudou.`);
+    } else {
+      setAviso("Nome inseguro. Foi para validação manual, sem revisão.");
+    }
+    setArquivo(null);
+    await carregar(sessao.token);
   }
 
   useEffect(() => {
@@ -157,6 +193,39 @@ export function App() {
           ))}
         </tbody>
       </table>
+      {sessao.perfil === "engenharia" ? (
+        <form className="cadastro" onSubmit={enviarPdf}>
+          <h2>Enviar PDF</h2>
+          <p>O arquivo entra por aqui. Chegar o PDF não publica a revisão.</p>
+          <label>
+            Arquivo no padrão CODIGO-REV.X.pdf
+            <input
+              type="file"
+              accept="application/pdf,.pdf"
+              onChange={(e) => setArquivo(e.target.files?.[0] ?? null)}
+            />
+          </label>
+          <button type="submit">Enviar</button>
+          {pendentes.length > 0 ? (
+            <ul>
+              {pendentes.map((item) => (
+                <li key={item.id}>
+                  {item.quadro_codigo} Rev {item.codigo} · {item.status}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {erros.length > 0 ? (
+            <ul>
+              {erros.map((item) => (
+                <li key={item.id}>
+                  {item.nome_original} · {item.motivo}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </form>
+      ) : null}
       {sessao.perfil === "engenharia" ? (
         <form className="cadastro" onSubmit={cadastrar}>
           <h2>Novo quadro</h2>

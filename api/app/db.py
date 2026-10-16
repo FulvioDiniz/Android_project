@@ -120,6 +120,20 @@ CREATE TABLE IF NOT EXISTS evento_auditoria (
     detalhe TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS erro_importacao (
+    id TEXT PRIMARY KEY,
+    nome_original TEXT NOT NULL,
+    arquivo_id TEXT REFERENCES arquivo(id),
+    hash_sha256 TEXT,
+    motivo TEXT NOT NULL,
+    detalhe TEXT NOT NULL,
+    status TEXT NOT NULL,
+    revisao_id TEXT,
+    criado_em TEXT NOT NULL,
+    resolvido_por TEXT,
+    resolvido_em TEXT
+);
+
 CREATE TABLE IF NOT EXISTS trava_publicacao (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     quadro_id TEXT,

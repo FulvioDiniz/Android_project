@@ -1,6 +1,6 @@
 # Quadros — fase 1
 
-Cadastro de quadro, sessão por perfil e lista no Galaxy Tab A11+. O banco do servidor é um arquivo SQLite. Ainda não há PDF nem revisão.
+Cadastro de quadro, sessão por perfil e lista no Galaxy Tab A11+. O banco do servidor é um arquivo SQLite. A engenharia envia o PDF pelo painel (`POST /api/projetos`). O nome `CODIGO-REV.X.pdf` vira revisão pendente. Nome fora do padrão vai para validação manual. O envio não publica. Montagem não envia.
 
 ## API
 

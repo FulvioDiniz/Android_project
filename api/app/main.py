@@ -3,15 +3,17 @@ import secrets
 import sqlite3
 import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, File, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.db import agora, connect, hash_token, init_db
+from app.importacao import gravar_bytes, interpretar_nome, registrar_erro
 
 HASHER = PasswordHasher()
 COOKIE = "quadros_sessao"
@@ -21,11 +23,12 @@ def erro(status: int, codigo: str, mensagem: str) -> JSONResponse:
     return JSONResponse(status_code=status, content={"erro": codigo, "mensagem": mensagem})
 
 
-def create_app(db_path: str | None = None) -> FastAPI:
+def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> FastAPI:
     path = db_path or os.environ.get("QUADROS_DB", "data/quadros.sqlite")
     init_db(path)
     app = FastAPI(title="Quadros")
     app.state.db_path = path
+    app.state.arquivos = Path(arquivos_dir or os.environ.get("QUADROS_ARQUIVOS") or str(Path(path).parent / "arquivos"))
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -296,6 +299,151 @@ def create_app(db_path: str | None = None) -> FastAPI:
         if depois != antes + 1:
             return erro(503, "banco_indisponivel", "O quadro não foi gravado.")
         return JSONResponse({"id": qid, "codigo": codigo}, status_code=201)
+
+    @app.post("/api/projetos")
+    async def enviar_projeto(request: Request, arquivo: UploadFile = File(...)) -> JSONResponse:
+        nome = arquivo.filename or ""
+        conteudo = await arquivo.read()
+        if not conteudo:
+            return erro(422, "pedido_invalido", "O arquivo chegou vazio.")
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            if sessao["perfil"] != "engenharia":
+                return erro(403, "perfil_insuficiente", "Só engenharia envia projeto.")
+            partes = interpretar_nome(nome)
+            if partes is None:
+                erro_id = registrar_erro(
+                    conn,
+                    app.state.arquivos,
+                    nome or "sem-nome",
+                    conteudo,
+                    "convencao_invalida",
+                    "O nome precisa ser CODIGO-REV.X.pdf, com um único marcador.",
+                )
+                conn.commit()
+                return JSONResponse(
+                    {"erro_importacao_id": erro_id, "revisao_id": None, "status": "validacao_manual"},
+                    status_code=202,
+                )
+            codigo, revisao_codigo = partes
+            quadros = conn.execute(
+                "SELECT id, codigo, revisao_vigente_id FROM quadro WHERE lower(codigo) = lower(?)",
+                (codigo,),
+            ).fetchall()
+            if len(quadros) == 0:
+                erro_id = registrar_erro(conn, app.state.arquivos, nome, conteudo, "quadro_nao_encontrado", codigo)
+                conn.commit()
+                return JSONResponse(
+                    {"erro_importacao_id": erro_id, "revisao_id": None, "status": "validacao_manual"},
+                    status_code=202,
+                )
+            if len(quadros) > 1:
+                erro_id = registrar_erro(conn, app.state.arquivos, nome, conteudo, "nome_ambiguo", codigo)
+                conn.commit()
+                return JSONResponse(
+                    {"erro_importacao_id": erro_id, "revisao_id": None, "status": "validacao_manual"},
+                    status_code=202,
+                )
+            quadro = quadros[0]
+            arquivo_id, digest = gravar_bytes(app.state.arquivos, "projetos", conteudo)
+            existente = conn.execute(
+                """SELECT r.id, a.hash_sha256 FROM revisao r
+                   JOIN arquivo a ON a.id = r.arquivo_id
+                   WHERE r.quadro_id = ? AND r.codigo = ?""",
+                (quadro["id"], revisao_codigo),
+            ).fetchone()
+            if existente:
+                (app.state.arquivos / "projetos" / arquivo_id).unlink(missing_ok=True)
+                if existente["hash_sha256"] == digest:
+                    conn.commit()
+                    return JSONResponse(
+                        {"revisao_id": existente["id"], "status": "pendente", "repetido": True}
+                    )
+                erro_id = registrar_erro(
+                    conn,
+                    app.state.arquivos,
+                    nome,
+                    conteudo,
+                    "revisao_duplicada",
+                    revisao_codigo,
+                )
+                conn.commit()
+                return JSONResponse(
+                    {"erro_importacao_id": erro_id, "revisao_id": None, "status": "validacao_manual"},
+                    status_code=202,
+                )
+            conn.execute(
+                """INSERT INTO arquivo
+                   (id, hash_sha256, tamanho_bytes, mime, nome_original, area, criado_em)
+                   VALUES (?, ?, ?, 'application/pdf', ?, 'projetos', ?)""",
+                (arquivo_id, digest, len(conteudo), nome, agora()),
+            )
+            revisao_id = str(uuid.uuid4())
+            conn.execute(
+                """INSERT INTO revisao
+                   (id, quadro_id, codigo, status, tipo, arquivo_id, motivo, importada_em)
+                   VALUES (?, ?, ?, 'pendente', NULL, ?, NULL, ?)""",
+                (revisao_id, quadro["id"], revisao_codigo, arquivo_id, agora()),
+            )
+            auditar(
+                conn,
+                "importacao",
+                "revisao",
+                revisao_id,
+                sessao["usuario_id"],
+                None,
+                f"{nome} {digest}",
+            )
+            ponteiro = conn.execute(
+                "SELECT revisao_vigente_id FROM quadro WHERE id = ?",
+                (quadro["id"],),
+            ).fetchone()["revisao_vigente_id"]
+            conn.commit()
+        return JSONResponse(
+            {
+                "revisao_id": revisao_id,
+                "codigo": revisao_codigo,
+                "status": "pendente",
+                "revisao_vigente_id": ponteiro,
+                "hash_sha256": digest,
+            },
+            status_code=201,
+        )
+
+    @app.get("/api/revisoes")
+    def listar_revisoes(request: Request, status: str = "pendente") -> JSONResponse:
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            if sessao["perfil"] == "montagem":
+                return erro(403, "perfil_insuficiente", "A fila de revisão é do painel.")
+            rows = conn.execute(
+                """SELECT r.id, r.codigo, r.status, q.codigo AS quadro_codigo, q.revisao_vigente_id
+                   FROM revisao r JOIN quadro q ON q.id = r.quadro_id
+                   WHERE r.status = ? ORDER BY r.importada_em""",
+                (status,),
+            ).fetchall()
+            conn.commit()
+        return JSONResponse([dict(row) for row in rows])
+
+    @app.get("/api/erros-importacao")
+    def listar_erros(request: Request, status: str = "aberto") -> JSONResponse:
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            if sessao["perfil"] == "montagem":
+                return erro(403, "perfil_insuficiente", "A validação manual é do painel.")
+            rows = conn.execute(
+                """SELECT id, nome_original, motivo, detalhe, status, revisao_id
+                   FROM erro_importacao WHERE status = ? ORDER BY criado_em""",
+                (status,),
+            ).fetchall()
+            conn.commit()
+        return JSONResponse([dict(row) for row in rows])
 
     @app.get("/api/bancadas")
     def listar_bancadas(request: Request) -> JSONResponse:
