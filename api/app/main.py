@@ -1207,16 +1207,20 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
                 return sessao
             if sessao["perfil"] not in ("admin", "engenharia", "supervisao"):
                 return erro(403, "perfil_insuficiente", "Auditoria é do painel.")
-            consulta = """SELECT id, ocorrido_em, acao, entidade, entidade_id, quadro_id, detalhe, ator_usuario_id
-                          FROM evento_auditoria WHERE 1 = 1"""
+            consulta = """SELECT e.id, e.ocorrido_em, e.acao, e.entidade, e.entidade_id, e.quadro_id,
+                                 e.detalhe, e.ator_usuario_id, u.nome AS ator_nome, q.codigo AS quadro_codigo
+                          FROM evento_auditoria e
+                          LEFT JOIN usuario u ON u.id = e.ator_usuario_id
+                          LEFT JOIN quadro q ON q.id = e.quadro_id
+                          WHERE 1 = 1"""
             parametros: list[str] = []
             if quadro_id:
-                consulta += " AND quadro_id = ?"
+                consulta += " AND e.quadro_id = ?"
                 parametros.append(quadro_id)
             if acao:
-                consulta += " AND acao = ?"
+                consulta += " AND e.acao = ?"
                 parametros.append(acao)
-            consulta += " ORDER BY id"
+            consulta += " ORDER BY e.id"
             rows = conn.execute(consulta, parametros).fetchall()
             conn.commit()
         return JSONResponse([dict(row) for row in rows])

@@ -12,7 +12,44 @@ body {
 main {
   max-width: 960px;
   margin: 0 auto;
-  padding: 24px;
+  padding: 24px 24px 64px;
+}
+
+.topo {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #141414;
+  color: #fff;
+  padding: 16px 24px 8px;
+}
+
+.topo strong {
+  font-size: 22px;
+}
+
+.topo nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.topo button {
+  margin: 0;
+  min-height: 48px;
+  background: #fff;
+  color: #141414;
+}
+
+.topo button.ativo {
+  background: #f4c430;
+  color: #141414;
+}
+
+.topo .quem {
+  margin: 10px 0 4px;
+  font-size: 16px;
 }
 
 h1 {
@@ -36,8 +73,13 @@ input {
   background: #fff;
 }
 
-button {
+button,
+select {
   font-size: 18px;
+  min-height: 48px;
+}
+
+button {
   padding: 12px 18px;
   margin-top: 16px;
   margin-right: 8px;
@@ -45,6 +87,15 @@ button {
   background: #141414;
   color: #fff;
   cursor: pointer;
+}
+
+select {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 4px;
+  padding: 8px 12px;
+  border: 2px solid #141414;
+  background: #fff;
 }
 
 button.secundario {
@@ -80,9 +131,109 @@ td {
   padding: 12px 8px;
 }
 
-form.cadastro {
-  margin-top: 24px;
+.bloco {
+  margin-top: 20px;
   padding: 16px;
   background: #fff;
   border: 2px solid #141414;
+}
+
+.destaque {
+  background: #fff8dc;
+}
+
+.grade,
+.lista-cartoes {
+  display: grid;
+  gap: 12px;
+}
+
+.cartao {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: #fff;
+  color: #141414;
+  margin: 0;
+}
+
+.codigo {
+  display: block;
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.codigo-menor {
+  font-size: 24px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.vigente {
+  font-size: 40px;
+  font-weight: 700;
+  margin: 8px 0;
+}
+
+.vigente-lista {
+  display: block;
+  font-size: 28px;
+  font-weight: 700;
+  margin: 8px 0;
+}
+
+.miudo {
+  display: block;
+  font-weight: 400;
+}
+
+.escolher {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.botao-arquivo {
+  display: inline-block;
+  min-height: 48px;
+  line-height: 48px;
+  padding: 0 18px;
+  background: #fff;
+  color: #141414;
+  border: 2px solid #141414;
+}
+
+.arquivo-escondido {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+.lista {
+  padding-left: 20px;
+}
+
+.eventos li {
+  display: grid;
+  gap: 2px;
+  padding: 12px 0;
+  border-bottom: 1px solid #ccc;
+  list-style: none;
+}
+
+.eventos {
+  padding-left: 0;
+}
+
+.item + .item {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #ccc;
 }
