@@ -403,6 +403,7 @@ def _garantir_colunas(conn: sqlite3.Connection) -> None:
 def _seed(conn: sqlite3.Connection) -> None:
     existe = conn.execute("SELECT COUNT(*) AS n FROM perfil").fetchone()["n"]
     if existe:
+        _quadro_de_exemplo(conn)
         return
     perfis = [
         (1, "admin", "Admin"),
@@ -446,6 +447,43 @@ def _seed(conn: sqlite3.Connection) -> None:
     conn.executemany(
         "INSERT INTO etapa_catalogo (id, codigo, nome, ordem) VALUES (?, ?, ?, ?)",
         etapas,
+    )
+    _quadro_de_exemplo(conn)
+
+
+def _quadro_de_exemplo(conn: sqlite3.Connection) -> None:
+    if conn.execute("SELECT COUNT(*) AS n FROM quadro").fetchone()["n"]:
+        return
+    momento = agora()
+    cliente = conn.execute("SELECT id FROM cliente WHERE nome = ?", ("2T ENGENHARIA",)).fetchone()
+    if cliente is None:
+        cliente_id = "cli-2t"
+        conn.execute(
+            "INSERT INTO cliente (id, nome, codigo) VALUES (?, ?, NULL)",
+            (cliente_id, "2T ENGENHARIA"),
+        )
+    else:
+        cliente_id = cliente["id"]
+    ordem = conn.execute(
+        "SELECT id FROM ordem_producao WHERE numero = ?",
+        ("01855-2026-05 QT-1",),
+    ).fetchone()
+    if ordem is None:
+        ordem_id = "op-01855"
+        conn.execute(
+            """INSERT INTO ordem_producao
+               (id, numero, cliente_id, descricao, status, prazo, criado_em)
+               VALUES (?, ?, ?, ?, 'aberta', NULL, ?)""",
+            (ordem_id, "01855-2026-05 QT-1", cliente_id, "2T ENGENHARIA", momento),
+        )
+    else:
+        ordem_id = ordem["id"]
+    conn.execute(
+        """INSERT INTO quadro
+           (id, codigo, ordem_producao_id, titulo, responsavel_id, bancada_id,
+            revisao_vigente_id, status, criado_em, atualizado_em)
+           VALUES (?, ?, ?, ?, 'usr-ana', 'bnc-2', NULL, 'em_montagem', ?, ?)""",
+        ("qdr-01855", "01855-2026-05 QT-1", ordem_id, "01855-2026-05 QT-1", momento, momento),
     )
 
 

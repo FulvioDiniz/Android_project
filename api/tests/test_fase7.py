@@ -158,7 +158,7 @@ def test_montagem_nao_altera_auditoria_nem_publicacao(tmp_path):
     )
     assert cancelamento.status_code == 403
     with sqlite3.connect(pasta / "quadros.sqlite") as conn:
-        ponteiro = conn.execute("SELECT revisao_vigente_id FROM quadro").fetchone()[0]
+        ponteiro = conn.execute("SELECT revisao_vigente_id FROM quadro WHERE codigo != '01855-2026-05 QT-1'").fetchone()[0]
         try:
             conn.execute("UPDATE evento_auditoria SET detalhe = 'alterado'")
             raise AssertionError("o gatilho deixou alterar a auditoria")
@@ -169,7 +169,7 @@ def test_montagem_nao_altera_auditoria_nem_publicacao(tmp_path):
             raise AssertionError("o gatilho deixou alterar a publicação")
         except sqlite3.DatabaseError as falha:
             assert "publicacao imutavel" in str(falha)
-        assert conn.execute("SELECT revisao_vigente_id FROM quadro").fetchone()[0] == ponteiro
+        assert conn.execute("SELECT revisao_vigente_id FROM quadro WHERE codigo != '01855-2026-05 QT-1'").fetchone()[0] == ponteiro
     assert _modo(pasta / "quadros.sqlite") == 0o600
 
 
@@ -196,7 +196,7 @@ def test_cancelar_devolve_a_anterior_e_leitura_impede(tmp_path):
     assert cancelada.status_code == 200, cancelada.text
     assert cancelada.json()["revisao_vigente_id"] == primeira
     with sqlite3.connect(pasta / "quadros.sqlite") as conn:
-        ponteiro = conn.execute("SELECT revisao_vigente_id FROM quadro").fetchone()[0]
+        ponteiro = conn.execute("SELECT revisao_vigente_id FROM quadro WHERE codigo != '01855-2026-05 QT-1'").fetchone()[0]
         status_b = conn.execute("SELECT status, motivo FROM revisao WHERE id = ?", (segunda,)).fetchone()
         status_a = conn.execute("SELECT status FROM revisao WHERE id = ?", (primeira,)).fetchone()[0]
         linhas = conn.execute("SELECT COUNT(*) FROM publicacao").fetchone()[0]
@@ -238,7 +238,7 @@ def test_cancelar_devolve_a_anterior_e_leitura_impede(tmp_path):
     assert impedido.status_code == 409
     assert impedido.json()["erro"] == "cancelamento_com_leitura"
     with sqlite3.connect(pasta / "quadros.sqlite") as conn:
-        assert conn.execute("SELECT revisao_vigente_id FROM quadro").fetchone()[0] == primeira
+        assert conn.execute("SELECT revisao_vigente_id FROM quadro WHERE codigo != '01855-2026-05 QT-1'").fetchone()[0] == primeira
         assert conn.execute("SELECT status FROM revisao WHERE id = ?", (primeira,)).fetchone()[0] == "publicada"
 
 
@@ -264,8 +264,9 @@ def test_backup_restaurado_abre_o_pdf_e_falta_de_arquivo_nao_apaga_ponteiro(tmp_
     restaurado = TestClient(create_app(str(origem / "quadros.sqlite"), str(origem / "arquivos")))
     lista = restaurado.get("/api/quadros", headers={"Authorization": f"Bearer {engenharia}"})
     assert lista.status_code == 200, lista.text
-    arquivo_id = lista.json()[0]["arquivo_id"]
-    ponteiro = lista.json()[0]["revisao_vigente_id"]
+    publicado = next(item for item in lista.json() if item["codigo"] == "PED-DEL-01890-2026-16")
+    arquivo_id = publicado["arquivo_id"]
+    ponteiro = publicado["revisao_vigente_id"]
     assert ponteiro == revisao
     baixado = restaurado.get(f"/api/arquivos/{arquivo_id}", headers={"Authorization": f"Bearer {engenharia}"})
     assert baixado.status_code == 200

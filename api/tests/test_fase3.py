@@ -143,7 +143,8 @@ def test_aprovar_nao_publica_e_publicar_e_atomico(tmp_path):
     with sqlite3.connect(pasta / "quadros.sqlite") as conn:
         assert conn.execute("SELECT COUNT(*) FROM publicacao").fetchone()[0] == 2
     lista = client.get("/api/quadros", headers={"Authorization": f"Bearer {acesso}"})
-    assert lista.json()[0]["revisao_vigente_codigo"] == "C"
+    publicado = next(item for item in lista.json() if item["codigo"] == "PED-DEL-01890-2026-16")
+    assert publicado["revisao_vigente_codigo"] == "C"
 
 
 def test_publicacao_concorrente_deixa_a_perdedora_aprovada(tmp_path):
@@ -236,7 +237,7 @@ def test_montagem_nao_publica(tmp_path):
     )
     assert resposta.status_code == 403
     with sqlite3.connect(pasta / "quadros.sqlite") as conn:
-        ponteiro = conn.execute("SELECT revisao_vigente_id FROM quadro").fetchone()[0]
+        ponteiro = conn.execute("SELECT revisao_vigente_id FROM quadro WHERE codigo != '01855-2026-05 QT-1'").fetchone()[0]
         status = conn.execute("SELECT status FROM revisao").fetchone()[0]
     assert ponteiro is None
     assert status == "aprovada"
@@ -244,7 +245,9 @@ def test_montagem_nao_publica(tmp_path):
 
 def _quadro_id(pasta) -> str:
     with sqlite3.connect(pasta / "quadros.sqlite") as conn:
-        return conn.execute("SELECT id FROM quadro").fetchone()[0]
+        return conn.execute(
+            "SELECT id FROM quadro WHERE codigo = 'PED-DEL-01890-2026-16'"
+        ).fetchone()[0]
 
 
 def _arquivo_da_revisao(pasta, revisao_id: str):

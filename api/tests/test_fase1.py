@@ -67,10 +67,10 @@ def test_engenharia_cadastra_e_montagem_ve_no_tablet(tmp_path):
     )
     assert lista.status_code == 200
     codigos = [item["codigo"] for item in lista.json()]
-    assert codigos == ["PED-DEL-01890-2026-16"]
+    assert codigos == ["01855-2026-05 QT-1", "PED-DEL-01890-2026-16"]
     with sqlite3.connect(caminho) as conn:
         n = conn.execute("SELECT COUNT(*) FROM quadro").fetchone()[0]
-    assert n == 1
+    assert n == 2
 
 
 def test_montagem_nao_cadastra_quadro(tmp_path):
@@ -88,8 +88,10 @@ def test_montagem_nao_cadastra_quadro(tmp_path):
     assert resposta.status_code == 403
     assert resposta.json()["erro"] == "perfil_insuficiente"
     with sqlite3.connect(caminho) as conn:
-        n = conn.execute("SELECT COUNT(*) FROM quadro").fetchone()[0]
-    assert n == 0
+        linha = conn.execute("SELECT codigo, revisao_vigente_id FROM quadro").fetchone()
+        revisoes = conn.execute("SELECT COUNT(*) FROM revisao").fetchone()[0]
+    assert linha == ("01855-2026-05 QT-1", None)
+    assert revisoes == 0
 
 
 def test_senha_errada_nao_cria_quadro(tmp_path):
@@ -99,11 +101,37 @@ def test_senha_errada_nao_cria_quadro(tmp_path):
     assert resposta.json()["erro"] == "credencial_invalida"
     with sqlite3.connect(caminho) as conn:
         n = conn.execute("SELECT COUNT(*) FROM quadro").fetchone()[0]
+        revisoes = conn.execute("SELECT COUNT(*) FROM revisao").fetchone()[0]
         auditoria = conn.execute(
             "SELECT COUNT(*) FROM evento_auditoria WHERE acao = 'sessao'"
         ).fetchone()[0]
-    assert n == 0
+    assert n == 1
+    assert revisoes == 0
     assert auditoria == 0
+
+
+def test_banco_novo_lista_o_exemplo_sem_revisao(tmp_path):
+    client, caminho = cliente(tmp_path)
+    with sqlite3.connect(caminho) as conn:
+        cliente_nome = conn.execute(
+            """SELECT c.nome FROM quadro q
+               JOIN ordem_producao op ON op.id = q.ordem_producao_id
+               JOIN cliente c ON c.id = op.cliente_id"""
+        ).fetchone()[0]
+        ponteiro = conn.execute(
+            "SELECT revisao_vigente_id FROM quadro WHERE codigo = '01855-2026-05 QT-1'"
+        ).fetchone()[0]
+        revisoes = conn.execute("SELECT COUNT(*) FROM revisao").fetchone()[0]
+    assert cliente_nome == "2T ENGENHARIA"
+    assert ponteiro is None
+    assert revisoes == 0
+    tablet = entrar(client, "carlos.mota", "montagem", "tablet-fase-1")
+    lista = client.get("/api/quadros", headers={"Authorization": f"Bearer {tablet.json()['token']}"})
+    assert lista.status_code == 200
+    item = lista.json()[0]
+    assert item["codigo"] == "01855-2026-05 QT-1"
+    assert item["cliente_nome"] == "2T ENGENHARIA"
+    assert item["revisao_vigente_id"] is None
 
 
 def test_montagem_nao_entra_no_painel(tmp_path):

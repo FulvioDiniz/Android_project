@@ -107,7 +107,7 @@ def test_observacao_anterior_entra_e_ponteiro_ignorado(tmp_path):
     with sqlite3.connect(pasta / "quadros.sqlite") as conn:
         assert conn.execute("SELECT COUNT(*) FROM observacao").fetchone()[0] == 1
         assert conn.execute("SELECT texto FROM observacao").fetchone()[0] == corpo["texto"]
-        ponteiro = conn.execute("SELECT revisao_vigente_id FROM quadro").fetchone()[0]
+        ponteiro = conn.execute("SELECT revisao_vigente_id FROM quadro WHERE codigo != '01855-2026-05 QT-1'").fetchone()[0]
         assert ponteiro == revisao
         assert conn.execute(
             "SELECT COUNT(*) FROM evento_auditoria WHERE detalhe = 'ponteiro ignorado'"

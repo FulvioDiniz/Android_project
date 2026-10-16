@@ -123,7 +123,7 @@ def test_montagem_nao_envia_nem_publica(tmp_path):
     with sqlite3.connect(pasta / "quadros.sqlite") as conn:
         assert conn.execute("SELECT COUNT(*) FROM revisao").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM arquivo").fetchone()[0] == 0
-        ponteiro = conn.execute("SELECT revisao_vigente_id FROM quadro").fetchone()[0]
+        ponteiro = conn.execute("SELECT revisao_vigente_id FROM quadro WHERE codigo != '01855-2026-05 QT-1'").fetchone()[0]
     assert ponteiro is None
 
 

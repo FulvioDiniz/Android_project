@@ -57,7 +57,12 @@ def preparar(client, acesso):
 
 def publicar(client, acesso, pasta, revisao):
     with sqlite3.connect(pasta / "quadros.sqlite") as conn:
-        quadro_id = conn.execute("SELECT id FROM quadro").fetchone()[0]
+        quadro_id = conn.execute(
+            """SELECT q.id FROM quadro q
+               JOIN revisao r ON r.quadro_id = q.id
+               WHERE r.id = ?""",
+            (revisao,),
+        ).fetchone()[0]
     return client.post(
         f"/api/quadros/{quadro_id}/publicacao",
         headers={"Authorization": f"Bearer {acesso}"},

@@ -57,7 +57,7 @@ def test_pasta_local_cria_pendente_e_nome_sem_rev_entra(tmp_path, monkeypatch):
     varrer_uma_vez(str(db), str(arquivos), str(pasta), estado)
     with sqlite3.connect(db) as conn:
         linha = conn.execute("SELECT status, origem, codigo FROM revisao").fetchone()
-        ponteiro = conn.execute("SELECT revisao_vigente_id FROM quadro").fetchone()[0]
+        ponteiro = conn.execute("SELECT revisao_vigente_id FROM quadro WHERE codigo != '01855-2026-05 QT-1'").fetchone()[0]
         arquivo = conn.execute(
             "SELECT hash_sha256 FROM arquivo WHERE area = 'projetos'"
         ).fetchone()[0]
@@ -172,7 +172,7 @@ def test_subpastas_comparam_sem_publicar(tmp_path):
     varrer_uma_vez(str(db), str(arquivos), str(pasta), estado)
     varrer_uma_vez(str(db), str(arquivos), str(pasta), estado)
     with sqlite3.connect(db) as conn:
-        ponteiro = conn.execute("SELECT revisao_vigente_id FROM quadro").fetchone()[0]
+        ponteiro = conn.execute("SELECT revisao_vigente_id FROM quadro WHERE codigo != '01855-2026-05 QT-1'").fetchone()[0]
         codigos = {
             row[0]: row[1]
             for row in conn.execute("SELECT codigo, status FROM revisao").fetchall()
@@ -194,7 +194,7 @@ def test_subpastas_comparam_sem_publicar(tmp_path):
     assert comparacao["PED-DEL-01890-2026-16-REV.C.pdf"][2] == "Cliente Exemplo/PED-DEL-01890-2026-16/PDF"
     varrer_uma_vez(str(db), str(arquivos), str(pasta), estado)
     with sqlite3.connect(db) as conn:
-        assert conn.execute("SELECT revisao_vigente_id FROM quadro").fetchone()[0] == revisao_a
+        assert conn.execute("SELECT revisao_vigente_id FROM quadro WHERE codigo != '01855-2026-05 QT-1'").fetchone()[0] == revisao_a
         assert conn.execute("SELECT COUNT(*) FROM revisao WHERE codigo = 'C'").fetchone()[0] == 1
 
 
