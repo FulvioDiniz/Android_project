@@ -12,8 +12,10 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 
 const val INSTALACAO = "tablet-fase-1"
 
@@ -92,6 +94,54 @@ fun baixarQuadros(base: String, token: String): List<QuadroLocal> {
             vigenteCodigo = item.optString("revisao_vigente_codigo"),
         )
     }
+}
+
+fun historico(base: String, token: String, quadroId: String): JSONObject =
+    pedir(base, "/api/quadros/$quadroId/revisoes", "GET", token, null)
+
+fun notificacoes(base: String, token: String, desde: String): JSONArray =
+    JSONArray(pedirTexto(base, "/api/notificacoes?desde=$desde", "GET", token, null))
+
+fun baixarPdf(base: String, token: String, arquivoId: String, destino: File) {
+    var offset = if (destino.exists()) destino.length() else 0L
+    var etag = ""
+    var total = Long.MAX_VALUE
+    while (offset < total) {
+        val conexao = URL(base.trimEnd('/') + "/api/arquivos/$arquivoId").openConnection() as HttpURLConnection
+        conexao.setRequestProperty("Authorization", "Bearer $token")
+        conexao.setRequestProperty("Range", "bytes=$offset-")
+        val codigo = conexao.responseCode
+        if (codigo !in listOf(200, 206)) {
+            throw IllegalStateException("Download recusado")
+        }
+        etag = conexao.getHeaderField("ETag").orEmpty().trim('"')
+        val faixa = conexao.getHeaderField("Content-Range").orEmpty()
+        if (faixa.contains("/")) {
+            total = faixa.substringAfter("/").toLongOrNull() ?: total
+        } else if (codigo == 200) {
+            total = conexao.contentLengthLong
+        }
+        destino.appendBytes(conexao.inputStream.readBytes())
+        offset = destino.length()
+        if (codigo == 200) break
+    }
+    if (sha256(destino) != etag) {
+        destino.delete()
+        throw IllegalStateException("Hash não confere. O PDF não foi liberado.")
+    }
+}
+
+private fun sha256(arquivo: File): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    arquivo.inputStream().use { entrada ->
+        val bloco = ByteArray(8192)
+        while (true) {
+            val lido = entrada.read(bloco)
+            if (lido < 0) break
+            digest.update(bloco, 0, lido)
+        }
+    }
+    return digest.digest().joinToString("") { "%02x".format(it) }
 }
 
 private fun pedir(base: String, caminho: String, metodo: String, token: String?, corpo: String?): JSONObject {

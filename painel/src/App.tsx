@@ -51,6 +51,10 @@ export function App() {
   const [tipo, setTipo] = useState("bloqueio");
   const [motivo, setMotivo] = useState("");
   const [erros, setErros] = useState<{ id: string; nome_original: string; motivo: string }[]>([]);
+  const [reconhecimento, setReconhecimento] = useState<{
+    confirmados: { usuario: string; dispositivo: string; ocorrido_em: string }[];
+    faltam: { dispositivo: string }[];
+  } | null>(null);
 
   async function carregar(token: string) {
     setQuadros(await api<Quadro[]>("/api/quadros", token));
@@ -195,10 +199,30 @@ export function App() {
               <td>{q.ordem_numero}</td>
               <td>{q.cliente_nome}</td>
               <td>{q.revisao_vigente_codigo ? `Rev ${q.revisao_vigente_codigo}` : "nenhuma"}</td>
+              <td>
+                <button
+                  type="button"
+                  className="secundario"
+                  onClick={() =>
+                    api<{
+                      confirmados: { usuario: string; dispositivo: string; ocorrido_em: string }[];
+                      faltam: { dispositivo: string }[];
+                    }>(`/api/quadros/${q.id}/confirmacoes`, sessao.token).then(setReconhecimento)
+                  }
+                >
+                  Quem reconheceu
+                </button>
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
+      {reconhecimento ? (
+        <div className="ok">
+          <p>Reconheceram: {reconhecimento.confirmados.map((item) => `${item.usuario} (${item.dispositivo})`).join(", ") || "ninguém"}</p>
+          <p>Faltam: {reconhecimento.faltam.map((item) => item.dispositivo).join(", ") || "ninguém"}</p>
+        </div>
+      ) : null}
       {sessao.perfil === "engenharia" ? (
         <form className="cadastro" onSubmit={enviarPdf}>
           <h2>Enviar PDF</h2>

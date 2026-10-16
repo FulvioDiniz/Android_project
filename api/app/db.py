@@ -144,6 +144,30 @@ CREATE TABLE IF NOT EXISTS publicacao (
     motivo TEXT
 );
 
+CREATE TABLE IF NOT EXISTS confirmacao_leitura (
+    id TEXT PRIMARY KEY,
+    revisao_id TEXT NOT NULL,
+    quadro_id TEXT NOT NULL,
+    usuario_id TEXT NOT NULL,
+    dispositivo_id TEXT NOT NULL,
+    operacao_id TEXT NOT NULL UNIQUE,
+    ocorrido_em TEXT NOT NULL,
+    recebido_em TEXT NOT NULL,
+    UNIQUE (revisao_id, usuario_id, dispositivo_id)
+);
+
+CREATE TABLE IF NOT EXISTS operacao_sincronizacao (
+    operacao_id TEXT PRIMARY KEY,
+    dispositivo_id TEXT,
+    usuario_id TEXT,
+    tipo TEXT NOT NULL,
+    payload_hash TEXT NOT NULL,
+    resultado_http INTEGER NOT NULL,
+    erro_codigo TEXT,
+    recurso_id TEXT,
+    recebido_em TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS notificacao (
     id TEXT PRIMARY KEY,
     quadro_id TEXT NOT NULL,

@@ -1,4 +1,8 @@
+import asyncio
+import hashlib
+import json
 import os
+import queue
 import secrets
 import sqlite3
 import uuid
@@ -8,9 +12,9 @@ from typing import Any
 
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
-from fastapi import FastAPI, File, Request, UploadFile
+from fastapi import FastAPI, File, Request, UploadFile, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from app.db import agora, connect, hash_token, init_db
 from app.importacao import gravar_bytes, interpretar_nome, registrar_erro
@@ -29,6 +33,7 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
     app = FastAPI(title="Quadros")
     app.state.db_path = path
     app.state.arquivos = Path(arquivos_dir or os.environ.get("QUADROS_ARQUIVOS") or str(Path(path).parent / "arquivos"))
+    app.state.avisos = []
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -632,6 +637,15 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
                 )
                 conn.execute("DELETE FROM trava_publicacao WHERE id = 1")
                 conn.commit()
+                aviso = {
+                    "tipo": "revisao_publicada",
+                    "quadro_id": quadro_id,
+                    "revisao_id": revisao_id,
+                    "codigo": rev["codigo"],
+                    "tipo_revisao": rev["tipo"],
+                }
+                for fila in list(app.state.avisos):
+                    fila.put(aviso)
             except sqlite3.Error:
                 conn.rollback()
                 return erro(409, "revisao_nao_aprovada", "A publicação não fechou.")
@@ -639,6 +653,230 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
             {"id": publicacao_id, "revisao_id": revisao_id, "revisao_anterior_id": anterior, "status": "publicada"},
             status_code=201,
         )
+
+    def pode_baixar(conn: sqlite3.Connection, sessao: sqlite3.Row, arquivo_id: str) -> bool:
+        ligado = conn.execute(
+            """SELECT q.status FROM revisao r
+               JOIN quadro q ON q.id = r.quadro_id
+               WHERE r.arquivo_id = ? AND q.status != 'cancelado'""",
+            (arquivo_id,),
+        ).fetchone()
+        if ligado:
+            return True
+        return sessao["perfil"] != "montagem"
+
+    @app.get("/api/arquivos/{arquivo_id}")
+    def baixar_arquivo(arquivo_id: str, request: Request):
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            row = conn.execute("SELECT * FROM arquivo WHERE id = ?", (arquivo_id,)).fetchone()
+            if row is None or not pode_baixar(conn, sessao, arquivo_id):
+                return erro(403 if row else 404, "nao_encontrado" if row is None else "perfil_insuficiente", "Arquivo indisponível.")
+            caminho = app.state.arquivos / row["area"] / arquivo_id
+            etag = row["hash_sha256"]
+            conn.commit()
+        if not caminho.is_file():
+            return erro(404, "nao_encontrado", "Arquivo indisponível.")
+        return FileResponse(caminho, media_type="application/pdf", headers={"ETag": etag})
+
+    @app.get("/api/notificacoes")
+    def listar_notificacoes(request: Request, desde: str = "") -> JSONResponse:
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            rows = conn.execute(
+                """SELECT id, quadro_id, revisao_id, tipo, criada_em
+                   FROM notificacao WHERE criada_em > ? ORDER BY criada_em""",
+                (desde,),
+            ).fetchall()
+            conn.commit()
+        return JSONResponse([dict(row) for row in rows])
+
+    @app.get("/api/quadros/{quadro_id}/revisoes")
+    def historico(quadro_id: str, request: Request) -> JSONResponse:
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            rows = conn.execute(
+                """SELECT id, codigo, status, tipo, arquivo_id, importada_em
+                   FROM revisao WHERE quadro_id = ? ORDER BY importada_em""",
+                (quadro_id,),
+            ).fetchall()
+            ponteiro = conn.execute(
+                "SELECT revisao_vigente_id FROM quadro WHERE id = ?",
+                (quadro_id,),
+            ).fetchone()
+            conn.commit()
+        if ponteiro is None:
+            return erro(404, "nao_encontrado", "Quadro não encontrado.")
+        return JSONResponse({"revisao_vigente_id": ponteiro["revisao_vigente_id"], "revisoes": [dict(row) for row in rows]})
+
+    @app.get("/api/quadros/{quadro_id}/confirmacoes")
+    def listar_confirmacoes(quadro_id: str, request: Request) -> JSONResponse:
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            if sessao["perfil"] == "montagem":
+                return erro(403, "perfil_insuficiente", "Quem reconheceu é do painel.")
+            vigente = conn.execute(
+                "SELECT revisao_vigente_id FROM quadro WHERE id = ?",
+                (quadro_id,),
+            ).fetchone()
+            if vigente is None:
+                return erro(404, "nao_encontrado", "Quadro não encontrado.")
+            revisao_id = vigente["revisao_vigente_id"]
+            confirmados = []
+            if revisao_id:
+                confirmados = [
+                    dict(row)
+                    for row in conn.execute(
+                        """SELECT c.ocorrido_em, u.nome AS usuario, d.apelido AS dispositivo, d.id AS dispositivo_id
+                           FROM confirmacao_leitura c
+                           JOIN usuario u ON u.id = c.usuario_id
+                           JOIN dispositivo d ON d.id = c.dispositivo_id
+                           WHERE c.revisao_id = ?""",
+                        (revisao_id,),
+                    ).fetchall()
+                ]
+            reconhecidos = {item["dispositivo_id"] for item in confirmados}
+            faltam = [
+                dict(row)
+                for row in conn.execute(
+                    """SELECT id AS dispositivo_id, apelido AS dispositivo
+                       FROM dispositivo WHERE status = 'ativo'"""
+                ).fetchall()
+                if row["dispositivo_id"] not in reconhecidos
+            ]
+            conn.commit()
+        return JSONResponse({"confirmados": confirmados, "faltam": faltam})
+
+    @app.post("/api/sync/operacoes")
+    def sincronizar(corpo: dict[str, Any], request: Request) -> JSONResponse:
+        if corpo.get("revisao_vigente_id"):
+            with db() as conn:
+                sessao = exigir(request, conn)
+                if not isinstance(sessao, JSONResponse):
+                    conn.execute(
+                        """INSERT INTO evento_auditoria
+                           (ocorrido_em, ator_usuario_id, ator_dispositivo_id, acao, entidade, entidade_id, quadro_id, operacao_id, detalhe)
+                           VALUES (?, ?, ?, 'publicacao', 'quadro', NULL, NULL, ?, 'ponteiro ignorado')""",
+                        (agora(), sessao["usuario_id"], sessao["dispositivo_id"], str(corpo.get("operacao_id") or "")),
+                    )
+                    conn.commit()
+            corpo = {k: v for k, v in corpo.items() if k != "revisao_vigente_id"}
+        tipo = str(corpo.get("tipo") or "")
+        operacao_id = str(corpo.get("operacao_id") or "")
+        if tipo != "confirmacao_leitura":
+            return erro(422, "pedido_invalido", "Nesta fase a sincronização aceita só confirmação de leitura.")
+        if not operacao_id:
+            return erro(422, "pedido_invalido", "Informe operacao_id.")
+        canonico = json.dumps(
+            {"tipo": tipo, "revisao_id": corpo.get("revisao_id"), "ocorrido_em": corpo.get("ocorrido_em")},
+            sort_keys=True,
+        )
+        digest = hashlib.sha256(canonico.encode()).hexdigest()
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            if not sessao["dispositivo_id"]:
+                return erro(422, "pedido_invalido", "Confirmação sai do tablet.")
+            previa = conn.execute(
+                "SELECT * FROM operacao_sincronizacao WHERE operacao_id = ?",
+                (operacao_id,),
+            ).fetchone()
+            if previa:
+                if previa["payload_hash"] != digest:
+                    return erro(409, "conflito_operacao", "Esta operação já foi usada com outro conteúdo.")
+                achada = conn.execute(
+                    "SELECT * FROM confirmacao_leitura WHERE id = ?",
+                    (previa["recurso_id"],),
+                ).fetchone()
+                return JSONResponse(dict(achada), status_code=previa["resultado_http"])
+            revisao_id = str(corpo.get("revisao_id") or "")
+            ocorrido = str(corpo.get("ocorrido_em") or "")
+            if not revisao_id or not ocorrido:
+                return erro(422, "pedido_invalido", "Informe revisão e horário.")
+            rev = conn.execute("SELECT * FROM revisao WHERE id = ?", (revisao_id,)).fetchone()
+            if rev is None:
+                return erro(404, "nao_encontrado", "Revisão não encontrada.")
+            ja = conn.execute(
+                """SELECT * FROM confirmacao_leitura
+                   WHERE revisao_id = ? AND usuario_id = ? AND dispositivo_id = ?""",
+                (revisao_id, sessao["usuario_id"], sessao["dispositivo_id"]),
+            ).fetchone()
+            if ja:
+                conn.execute(
+                    """INSERT INTO operacao_sincronizacao
+                       (operacao_id, dispositivo_id, usuario_id, tipo, payload_hash, resultado_http, erro_codigo, recurso_id, recebido_em)
+                       VALUES (?, ?, ?, ?, ?, 200, NULL, ?, ?)""",
+                    (operacao_id, sessao["dispositivo_id"], sessao["usuario_id"], tipo, digest, ja["id"], agora()),
+                )
+                conn.commit()
+                return JSONResponse(dict(ja))
+            confirmacao_id = str(uuid.uuid4())
+            recebido = agora()
+            conn.execute(
+                """INSERT INTO confirmacao_leitura
+                   (id, revisao_id, quadro_id, usuario_id, dispositivo_id, operacao_id, ocorrido_em, recebido_em)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (confirmacao_id, revisao_id, rev["quadro_id"], sessao["usuario_id"], sessao["dispositivo_id"], operacao_id, ocorrido, recebido),
+            )
+            conn.execute(
+                """INSERT INTO operacao_sincronizacao
+                   (operacao_id, dispositivo_id, usuario_id, tipo, payload_hash, resultado_http, erro_codigo, recurso_id, recebido_em)
+                   VALUES (?, ?, ?, ?, ?, 201, NULL, ?, ?)""",
+                (operacao_id, sessao["dispositivo_id"], sessao["usuario_id"], tipo, digest, confirmacao_id, recebido),
+            )
+            conn.execute(
+                """INSERT INTO evento_auditoria
+                   (ocorrido_em, ator_usuario_id, ator_dispositivo_id, acao, entidade, entidade_id, quadro_id, operacao_id, detalhe)
+                   VALUES (?, ?, ?, 'confirmacao_leitura', 'confirmacao_leitura', ?, ?, ?, ?)""",
+                (recebido, sessao["usuario_id"], sessao["dispositivo_id"], confirmacao_id, rev["quadro_id"], operacao_id, ocorrido),
+            )
+            conn.commit()
+            gravada = conn.execute(
+                "SELECT * FROM confirmacao_leitura WHERE id = ?",
+                (confirmacao_id,),
+            ).fetchone()
+        return JSONResponse(dict(gravada), status_code=201)
+
+    @app.websocket("/api/ws")
+    async def avisos(websocket: WebSocket) -> None:
+        await websocket.accept()
+        primeira = await websocket.receive_json()
+        token = str(primeira.get("token") or "")
+        with db() as conn:
+            row = conn.execute(
+                "SELECT id FROM sessao WHERE token_hash = ? AND revogada_em IS NULL",
+                (hash_token(token),),
+            ).fetchone()
+        if row is None:
+            await websocket.send_json({"erro": "sessao_revogada", "mensagem": "Sessão ausente ou vencida."})
+            await websocket.close()
+            return
+        fila: queue.Queue = queue.Queue()
+        app.state.avisos.append(fila)
+
+        def pegar():
+            try:
+                return fila.get(timeout=0.5)
+            except queue.Empty:
+                return None
+
+        try:
+            while True:
+                item = await asyncio.to_thread(pegar)
+                if item is not None:
+                    await websocket.send_json(item)
+        finally:
+            if fila in app.state.avisos:
+                app.state.avisos.remove(fila)
 
     return app
 
