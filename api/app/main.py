@@ -17,6 +17,7 @@ from fastapi import FastAPI, File, Request, UploadFile, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
+from app.backup import gerar_backup
 from app.db import agora, connect, hash_token, init_db
 from app.importacao import gravar_bytes, interpretar_nome, registrar_erro
 from app.liberacao import motivo_recusa_etapa, salto_de_relogio
@@ -291,6 +292,7 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
     app.state.db_path = path
     app.state.arquivos = Path(arquivos_dir or os.environ.get("QUADROS_ARQUIVOS") or str(Path(path).parent / "arquivos"))
     app.state.avisos = []
+    app.state.backups = Path(path).parent / "backups"
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -329,6 +331,13 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
         ).fetchone()
         if row is None or row["revogada_em"] or not row["usuario_ativo"]:
             return None
+        if row["dispositivo_id"]:
+            aparelho = conn.execute(
+                "SELECT status FROM dispositivo WHERE id = ?",
+                (row["dispositivo_id"],),
+            ).fetchone()
+            if aparelho is None or aparelho["status"] != "ativo":
+                return None
         if datetime.fromisoformat(row["expira_em"]) <= datetime.now(timezone.utc):
             return None
         conn.execute("UPDATE sessao SET ultimo_uso_em = ? WHERE id = ?", (agora(), row["id"]))
@@ -479,7 +488,7 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
                 return sessao
             row = conn.execute(
                 """SELECT q.id, q.codigo, q.titulo, q.status, q.revisao_vigente_id,
-                          rv.codigo AS revisao_vigente_codigo,
+                          rv.codigo AS revisao_vigente_codigo, rv.arquivo_id AS arquivo_id,
                           op.id AS ordem_producao_id, op.numero AS ordem_numero,
                           c.nome AS cliente_nome
                    FROM quadro q
@@ -489,10 +498,19 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
                    WHERE q.id = ?""",
                 (quadro_id,),
             ).fetchone()
+            if row is None:
+                return erro(404, "nao_encontrado", "Quadro não encontrado.")
+            dados = dict(row)
+            arquivo_id = dados.get("arquivo_id")
+            if not arquivo_id:
+                dados["arquivo_disponivel"] = True
+            else:
+                guardado = conn.execute("SELECT area FROM arquivo WHERE id = ?", (arquivo_id,)).fetchone()
+                dados["arquivo_disponivel"] = bool(
+                    guardado and (app.state.arquivos / guardado["area"] / arquivo_id).is_file()
+                )
             conn.commit()
-        if row is None:
-            return erro(404, "nao_encontrado", "Quadro não encontrado.")
-        return JSONResponse(dict(row))
+        return JSONResponse(dados)
 
     @app.post("/api/ordens-producao")
     def criar_ordem(corpo: dict[str, Any], request: Request) -> JSONResponse:
@@ -912,6 +930,309 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
             {"id": publicacao_id, "revisao_id": revisao_id, "revisao_anterior_id": anterior, "status": "publicada"},
             status_code=201,
         )
+
+    def somente_admin(sessao: sqlite3.Row) -> JSONResponse | None:
+        if sessao["perfil"] != "admin":
+            return erro(403, "perfil_insuficiente", "Usuário e dispositivo são do admin.")
+        return None
+
+    @app.post("/api/quadros/{quadro_id}/cancelamento")
+    def cancelar(quadro_id: str, corpo: dict[str, Any], request: Request) -> JSONResponse:
+        motivo = str(corpo.get("motivo") or "").strip()
+        if not motivo:
+            return erro(409, "motivo_obrigatorio", "Cancelar exige motivo.")
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            recusa = somente_engenharia(sessao)
+            if recusa:
+                return recusa
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                quadro = conn.execute("SELECT * FROM quadro WHERE id = ?", (quadro_id,)).fetchone()
+                if quadro is None or not quadro["revisao_vigente_id"]:
+                    conn.rollback()
+                    return erro(404, "nao_encontrado", "Não há vigente para cancelar.")
+                vigente_id = quadro["revisao_vigente_id"]
+                if conn.execute(
+                    "SELECT 1 FROM confirmacao_leitura WHERE revisao_id = ?",
+                    (vigente_id,),
+                ).fetchone():
+                    conn.rollback()
+                    return erro(409, "cancelamento_com_leitura", "A bancada já reconheceu esta revisão. A correção é uma revisão nova.")
+                origem = conn.execute(
+                    """SELECT revisao_anterior_id FROM publicacao
+                       WHERE quadro_id = ? AND revisao_id = ? AND motivo IS NULL
+                       ORDER BY publicada_em DESC LIMIT 1""",
+                    (quadro_id, vigente_id),
+                ).fetchone()
+                if origem is None:
+                    conn.rollback()
+                    return erro(409, "revisao_nao_aprovada", "A vigente não tem publicação para desfazer.")
+                anterior = origem["revisao_anterior_id"]
+                momento = agora()
+                conn.execute(
+                    "INSERT INTO trava_publicacao (id, quadro_id, aberta_em) VALUES (1, ?, ?)",
+                    (quadro_id, momento),
+                )
+                cancelada = conn.execute(
+                    """UPDATE revisao SET status = 'cancelada', motivo = ?
+                       WHERE id = ? AND status = 'publicada'""",
+                    (motivo, vigente_id),
+                )
+                if cancelada.rowcount != 1:
+                    conn.rollback()
+                    return erro(409, "revisao_nao_aprovada", "A vigente não está publicada.")
+                if anterior:
+                    restaurada = conn.execute(
+                        """UPDATE revisao SET status = 'publicada'
+                           WHERE id = ? AND quadro_id = ? AND status = 'substituida'""",
+                        (anterior, quadro_id),
+                    )
+                    if restaurada.rowcount != 1:
+                        conn.rollback()
+                        return erro(409, "revisao_nao_aprovada", "A revisão anterior não pôde voltar.")
+                conn.execute(
+                    "UPDATE quadro SET revisao_vigente_id = ?, atualizado_em = ? WHERE id = ?",
+                    (anterior, momento, quadro_id),
+                )
+                publicacao_id = str(uuid.uuid4())
+                conn.execute(
+                    """INSERT INTO publicacao
+                       (id, quadro_id, revisao_id, revisao_anterior_id, publicada_por, publicada_em, motivo)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (publicacao_id, quadro_id, vigente_id, anterior, sessao["usuario_id"], momento, motivo),
+                )
+                conn.execute(
+                    """INSERT INTO evento_auditoria
+                       (ocorrido_em, ator_usuario_id, ator_dispositivo_id, acao, entidade, entidade_id, quadro_id, operacao_id, detalhe)
+                       VALUES (?, ?, NULL, 'cancelamento', 'publicacao', ?, ?, NULL, ?)""",
+                    (momento, sessao["usuario_id"], publicacao_id, quadro_id, motivo),
+                )
+                conn.execute("DELETE FROM trava_publicacao WHERE id = 1")
+                conn.commit()
+            except sqlite3.Error:
+                conn.rollback()
+                return erro(409, "revisao_nao_aprovada", "O cancelamento não fechou.")
+        return JSONResponse(
+            {
+                "id": publicacao_id,
+                "revisao_id": vigente_id,
+                "revisao_vigente_id": anterior,
+                "status": "cancelada",
+                "motivo": motivo,
+            }
+        )
+
+    @app.get("/api/usuarios")
+    def listar_usuarios(request: Request) -> JSONResponse:
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            recusa = somente_admin(sessao)
+            if recusa:
+                return recusa
+            rows = conn.execute(
+                """SELECT u.id, u.nome, u.login, u.ativo, p.codigo AS perfil
+                   FROM usuario u JOIN perfil p ON p.id = u.perfil_id
+                   ORDER BY u.nome"""
+            ).fetchall()
+            conn.commit()
+        return JSONResponse([dict(row) for row in rows])
+
+    @app.post("/api/usuarios")
+    def criar_usuario(corpo: dict[str, Any], request: Request) -> JSONResponse:
+        nome = str(corpo.get("nome") or "").strip()
+        login = str(corpo.get("login") or "").strip()
+        senha = str(corpo.get("senha") or "")
+        perfil = str(corpo.get("perfil") or "").strip()
+        if not nome or not login or not senha or perfil not in ("admin", "engenharia", "supervisao", "montagem"):
+            return erro(422, "pedido_invalido", "Informe nome, login, senha e um perfil.")
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            recusa = somente_admin(sessao)
+            if recusa:
+                return recusa
+            if conn.execute("SELECT 1 FROM usuario WHERE login = ?", (login,)).fetchone():
+                return erro(422, "pedido_invalido", "Login já existe.")
+            perfil_id = conn.execute("SELECT id FROM perfil WHERE codigo = ?", (perfil,)).fetchone()["id"]
+            usuario_id = str(uuid.uuid4())
+            conn.execute(
+                """INSERT INTO usuario (id, nome, login, senha_hash, perfil_id, ativo, criado_em)
+                   VALUES (?, ?, ?, ?, ?, 1, ?)""",
+                (usuario_id, nome, login, HASHER.hash(senha), perfil_id, agora()),
+            )
+            conn.execute(
+                """INSERT INTO evento_auditoria
+                   (ocorrido_em, ator_usuario_id, ator_dispositivo_id, acao, entidade, entidade_id, quadro_id, operacao_id, detalhe)
+                   VALUES (?, ?, NULL, 'usuario', 'usuario', ?, NULL, NULL, ?)""",
+                (agora(), sessao["usuario_id"], usuario_id, perfil),
+            )
+            conn.commit()
+        return JSONResponse({"id": usuario_id, "nome": nome, "login": login, "perfil": perfil, "ativo": 1}, status_code=201)
+
+    @app.post("/api/usuarios/{usuario_id}/bloqueio")
+    def bloquear_usuario(usuario_id: str, request: Request) -> JSONResponse:
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            recusa = somente_admin(sessao)
+            if recusa:
+                return recusa
+            alvo = conn.execute("SELECT id FROM usuario WHERE id = ?", (usuario_id,)).fetchone()
+            if alvo is None:
+                return erro(404, "nao_encontrado", "Usuário não encontrado.")
+            momento = agora()
+            conn.execute("UPDATE usuario SET ativo = 0 WHERE id = ?", (usuario_id,))
+            conn.execute(
+                "UPDATE sessao SET revogada_em = ? WHERE usuario_id = ? AND revogada_em IS NULL",
+                (momento, usuario_id),
+            )
+            conn.execute(
+                """INSERT INTO evento_auditoria
+                   (ocorrido_em, ator_usuario_id, ator_dispositivo_id, acao, entidade, entidade_id, quadro_id, operacao_id, detalhe)
+                   VALUES (?, ?, NULL, 'usuario', 'usuario', ?, NULL, NULL, 'bloqueio')""",
+                (momento, sessao["usuario_id"], usuario_id),
+            )
+            conn.commit()
+        return JSONResponse({"id": usuario_id, "ativo": 0})
+
+    @app.get("/api/dispositivos")
+    def listar_dispositivos(request: Request) -> JSONResponse:
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            recusa = somente_admin(sessao)
+            if recusa:
+                return recusa
+            rows = conn.execute(
+                """SELECT id, identificador_instalacao, apelido, bancada_id, status, ultimo_visto_em
+                   FROM dispositivo ORDER BY apelido"""
+            ).fetchall()
+            conn.commit()
+        return JSONResponse([dict(row) for row in rows])
+
+    @app.post("/api/dispositivos/{dispositivo_id}/vinculo")
+    def vincular_dispositivo(dispositivo_id: str, corpo: dict[str, Any], request: Request) -> JSONResponse:
+        bancada_id = str(corpo.get("bancada_id") or "").strip()
+        if not bancada_id:
+            return erro(422, "pedido_invalido", "Informe a bancada.")
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            recusa = somente_admin(sessao)
+            if recusa:
+                return recusa
+            if conn.execute("SELECT 1 FROM dispositivo WHERE id = ?", (dispositivo_id,)).fetchone() is None:
+                return erro(404, "nao_encontrado", "Tablet não encontrado.")
+            if conn.execute("SELECT 1 FROM bancada WHERE id = ?", (bancada_id,)).fetchone() is None:
+                return erro(404, "nao_encontrado", "Bancada não encontrada.")
+            conn.execute(
+                "UPDATE dispositivo SET bancada_id = ? WHERE id = ?",
+                (bancada_id, dispositivo_id),
+            )
+            conn.execute(
+                """INSERT INTO evento_auditoria
+                   (ocorrido_em, ator_usuario_id, ator_dispositivo_id, acao, entidade, entidade_id, quadro_id, operacao_id, detalhe)
+                   VALUES (?, ?, ?, 'dispositivo', 'dispositivo', ?, NULL, NULL, ?)""",
+                (agora(), sessao["usuario_id"], dispositivo_id, dispositivo_id, bancada_id),
+            )
+            conn.commit()
+        return JSONResponse({"id": dispositivo_id, "bancada_id": bancada_id})
+
+    @app.post("/api/dispositivos/{dispositivo_id}/ativacao")
+    def ativar_dispositivo(dispositivo_id: str, request: Request) -> JSONResponse:
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            recusa = somente_admin(sessao)
+            if recusa:
+                return recusa
+            aparelho = conn.execute("SELECT * FROM dispositivo WHERE id = ?", (dispositivo_id,)).fetchone()
+            if aparelho is None:
+                return erro(404, "nao_encontrado", "Tablet não encontrado.")
+            if aparelho["status"] == "bloqueado":
+                return erro(422, "pedido_invalido", "Tablet bloqueado não volta por esta rota.")
+            if aparelho["status"] != "ativo":
+                conn.execute("UPDATE dispositivo SET status = 'ativo' WHERE id = ?", (dispositivo_id,))
+                conn.execute(
+                    """INSERT INTO evento_auditoria
+                       (ocorrido_em, ator_usuario_id, ator_dispositivo_id, acao, entidade, entidade_id, quadro_id, operacao_id, detalhe)
+                       VALUES (?, ?, ?, 'dispositivo', 'dispositivo', ?, NULL, NULL, 'ativacao')""",
+                    (agora(), sessao["usuario_id"], dispositivo_id, dispositivo_id),
+                )
+                conn.commit()
+        return JSONResponse({"id": dispositivo_id, "status": "ativo"})
+
+    @app.post("/api/dispositivos/{dispositivo_id}/bloqueio")
+    def bloquear_dispositivo(dispositivo_id: str, request: Request) -> JSONResponse:
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            recusa = somente_admin(sessao)
+            if recusa:
+                return recusa
+            aparelho = conn.execute("SELECT id FROM dispositivo WHERE id = ?", (dispositivo_id,)).fetchone()
+            if aparelho is None:
+                return erro(404, "nao_encontrado", "Tablet não encontrado.")
+            momento = agora()
+            conn.execute("UPDATE dispositivo SET status = 'bloqueado' WHERE id = ?", (dispositivo_id,))
+            conn.execute(
+                "UPDATE sessao SET revogada_em = ? WHERE dispositivo_id = ? AND revogada_em IS NULL",
+                (momento, dispositivo_id),
+            )
+            conn.execute(
+                """INSERT INTO evento_auditoria
+                   (ocorrido_em, ator_usuario_id, ator_dispositivo_id, acao, entidade, entidade_id, quadro_id, operacao_id, detalhe)
+                   VALUES (?, ?, ?, 'dispositivo', 'dispositivo', ?, NULL, NULL, 'bloqueio')""",
+                (momento, sessao["usuario_id"], dispositivo_id, dispositivo_id),
+            )
+            conn.commit()
+        return JSONResponse({"id": dispositivo_id, "status": "bloqueado"})
+
+    @app.get("/api/auditoria")
+    def listar_auditoria(request: Request, quadro_id: str = "", acao: str = "") -> JSONResponse:
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            if sessao["perfil"] not in ("admin", "engenharia", "supervisao"):
+                return erro(403, "perfil_insuficiente", "Auditoria é do painel.")
+            consulta = """SELECT id, ocorrido_em, acao, entidade, entidade_id, quadro_id, detalhe, ator_usuario_id
+                          FROM evento_auditoria WHERE 1 = 1"""
+            parametros: list[str] = []
+            if quadro_id:
+                consulta += " AND quadro_id = ?"
+                parametros.append(quadro_id)
+            if acao:
+                consulta += " AND acao = ?"
+                parametros.append(acao)
+            consulta += " ORDER BY id"
+            rows = conn.execute(consulta, parametros).fetchall()
+            conn.commit()
+        return JSONResponse([dict(row) for row in rows])
+
+    @app.post("/api/backup")
+    def criar_backup(request: Request) -> JSONResponse:
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            recusa = somente_admin(sessao)
+            if recusa:
+                return recusa
+            conn.commit()
+        pasta = gerar_backup(Path(app.state.db_path), app.state.arquivos, app.state.backups)
+        return JSONResponse({"criado_em": pasta.name}, status_code=201)
 
     def pode_baixar(conn: sqlite3.Connection, sessao: sqlite3.Row, arquivo_id: str) -> bool:
         if conn.execute("SELECT 1 FROM foto WHERE arquivo_id = ?", (arquivo_id,)).fetchone():

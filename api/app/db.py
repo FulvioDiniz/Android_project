@@ -1,4 +1,5 @@
 import hashlib
+import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -296,7 +297,8 @@ BEGIN
     SELECT RAISE(ABORT, 'publicacao sem trava')
     WHERE NOT EXISTS (SELECT 1 FROM trava_publicacao WHERE id = 1);
     SELECT RAISE(ABORT, 'revisao nao publicada deste quadro')
-    WHERE NOT EXISTS (
+    WHERE NEW.revisao_vigente_id IS NOT NULL
+      AND NOT EXISTS (
         SELECT 1 FROM revisao
         WHERE id = NEW.revisao_vigente_id
           AND quadro_id = NEW.id
@@ -328,7 +330,14 @@ def connect(path: str) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
+    _modo_privado(path)
     return conn
+
+
+def _modo_privado(path: str) -> None:
+    arquivo = Path(path)
+    if arquivo.exists():
+        os.chmod(arquivo, 0o600)
 
 
 def init_db(path: str) -> None:

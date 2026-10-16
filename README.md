@@ -17,7 +17,15 @@ Ensaios: `cd api && .venv/bin/pytest`.
 
 Logins semeados, senha igual ao perfil: `ana.ribeiro` / `engenharia`, `carlos.mota` / `montagem`, `helena.dias` / `supervisao`, `rita.sol` / `admin`.
 
-O tablet desta fase usa o identificador `tablet-fase-1`, já liberado. Outro aparelho nasce pendente e não entra.
+O tablet desta fase usa o identificador `tablet-fase-1`, já liberado. Outro aparelho nasce pendente e não entra. O admin vincula a bancada e ativa. Bloquear o aparelho revoga a sessão e tira ele da conta do bloqueio crítico.
+
+O SQLite não tem papel separado de banco. Quem escreve é o processo da API, dono do arquivo em modo `0600`. Auditoria e publicação não aceitam `UPDATE`: o gatilho aborta.
+
+## Backup
+
+Uma vez por dia, com a API no ar, a admin chama `POST /api/backup`. A cópia do SQLite usa a API de backup do próprio SQLite, para não apanhar o arquivo no meio de uma escrita, e o disco interno sai no mesmo ciclo. Cada pasta fica em `api/data/backups/AAAAMMDDTHHMMSSZ`, com o banco em modo `0600`. Pastas com mais de 30 dias saem na geração seguinte.
+
+Para restaurar: pare a API, troque o arquivo SQLite e o diretório de arquivos pela pasta da cópia e suba de novo. Se o PDF da vigente não estiver no disco, o download responde erro e o quadro continua mostrando o mesmo ponteiro.
 
 ## Painel
 
@@ -27,7 +35,7 @@ npm install
 npm run dev
 ```
 
-Abre em `http://localhost:5173`. A engenharia cadastra. Montagem recebe recusa no painel.
+Abre em `http://localhost:5173`. A engenharia cadastra, publica e cancela a vigente enquanto ninguém confirmou a leitura. O admin cria usuário, vincula e bloqueia tablet. Supervisão e engenharia filtram a auditoria. Montagem recebe recusa no painel.
 
 ## Tablet
 
