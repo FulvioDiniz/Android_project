@@ -296,6 +296,7 @@ CREATE TABLE IF NOT EXISTS arquivo_rede_tratado (
 CREATE TABLE IF NOT EXISTS comparacao_rede (
     id TEXT PRIMARY KEY,
     codigo_quadro TEXT NOT NULL,
+    grupo TEXT NOT NULL DEFAULT '',
     pasta TEXT NOT NULL,
     arquivo TEXT NOT NULL,
     hash_sha256 TEXT NOT NULL,
@@ -394,6 +395,9 @@ def _garantir_colunas(conn: sqlite3.Connection) -> None:
     tratado = {row["name"] for row in conn.execute("PRAGMA table_info(arquivo_rede_tratado)")}
     if tratado and "caminho" not in tratado:
         conn.execute("ALTER TABLE arquivo_rede_tratado ADD COLUMN caminho TEXT")
+    comparacao = {row["name"] for row in conn.execute("PRAGMA table_info(comparacao_rede)")}
+    if comparacao and "grupo" not in comparacao:
+        conn.execute("ALTER TABLE comparacao_rede ADD COLUMN grupo TEXT NOT NULL DEFAULT ''")
 
 
 def _seed(conn: sqlite3.Connection) -> None:

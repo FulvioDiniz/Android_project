@@ -32,6 +32,7 @@ type Revisao = {
 
 type ComparacaoRede = {
   codigo_quadro: string;
+  grupo?: string;
   pasta: string;
   arquivo: string;
   alterado_em: string;
@@ -694,6 +695,7 @@ export function App() {
               {(pastaRede?.comparacoes ?? []).map((item) => (
                 <article key={`${item.pasta}/${item.arquivo}`} className="bloco">
                   <p className="codigo-menor">{item.codigo_quadro || "Sem código"}</p>
+                  {item.grupo ? <p>Grupo: {item.grupo}</p> : null}
                   <p>Pasta: {item.pasta}</p>
                   <p>Arquivo: {item.arquivo}</p>
                   <p>Alteração: {horaBrasil(item.alterado_em)}</p>

@@ -33,6 +33,59 @@ def interpretar_nome(nome: str) -> tuple[str, str] | None:
     return casou.group(1), casou.group(2).upper()
 
 
+def importar_no_quadro(conn, raiz: Path, quadro_id: str, nome: str, conteudo: bytes, codigo_revisao: str, origem: str, usuario_id: str | None) -> dict:
+    arquivo_id, digest = gravar_bytes(raiz, "projetos", conteudo)
+    igual = conn.execute(
+        """SELECT r.id FROM revisao r
+           JOIN arquivo a ON a.id = r.arquivo_id
+           WHERE r.quadro_id = ? AND a.hash_sha256 = ?""",
+        (quadro_id, digest),
+    ).fetchone()
+    if igual:
+        (raiz / "projetos" / arquivo_id).unlink(missing_ok=True)
+        return {"http": 200, "revisao_id": igual["id"], "status": "pendente", "repetido": True, "hash_sha256": digest, "origem": origem}
+    repetido = conn.execute(
+        "SELECT id FROM revisao WHERE quadro_id = ? AND codigo = ?",
+        (quadro_id, codigo_revisao),
+    ).fetchone()
+    if repetido:
+        (raiz / "projetos" / arquivo_id).unlink(missing_ok=True)
+        erro_id = registrar_erro(conn, raiz, nome, conteudo, "revisao_duplicada", codigo_revisao)
+        return {"http": 202, "erro_importacao_id": erro_id, "revisao_id": None, "status": "validacao_manual", "origem": origem}
+    conn.execute(
+        """INSERT INTO arquivo
+           (id, hash_sha256, tamanho_bytes, mime, nome_original, area, criado_em)
+           VALUES (?, ?, ?, 'application/pdf', ?, 'projetos', ?)""",
+        (arquivo_id, digest, len(conteudo), nome, agora()),
+    )
+    revisao_id = str(uuid.uuid4())
+    conn.execute(
+        """INSERT INTO revisao
+           (id, quadro_id, codigo, status, tipo, arquivo_id, motivo, importada_em, origem)
+           VALUES (?, ?, ?, 'pendente', NULL, ?, NULL, ?, ?)""",
+        (revisao_id, quadro_id, codigo_revisao, arquivo_id, agora(), origem),
+    )
+    conn.execute(
+        """INSERT INTO evento_auditoria
+           (ocorrido_em, ator_usuario_id, ator_dispositivo_id, acao, entidade, entidade_id, quadro_id, operacao_id, detalhe)
+           VALUES (?, ?, NULL, 'importacao', 'revisao', ?, ?, NULL, ?)""",
+        (agora(), usuario_id, revisao_id, quadro_id, f"{nome} {digest}"),
+    )
+    ponteiro = conn.execute(
+        "SELECT revisao_vigente_id FROM quadro WHERE id = ?",
+        (quadro_id,),
+    ).fetchone()["revisao_vigente_id"]
+    return {
+        "http": 201,
+        "revisao_id": revisao_id,
+        "codigo": codigo_revisao,
+        "status": "pendente",
+        "revisao_vigente_id": ponteiro,
+        "hash_sha256": digest,
+        "origem": origem,
+    }
+
+
 def importar_pdf(conn, raiz: Path, nome: str, conteudo: bytes, origem: str, usuario_id: str | None) -> dict:
     if origem not in ("painel", "rede"):
         origem = "painel"
