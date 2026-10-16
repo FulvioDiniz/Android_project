@@ -17,13 +17,16 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -48,20 +51,35 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun Tela(dao: QuadroDao) {
     val escopo = rememberCoroutineScope()
+    val contexto = LocalContext.current
     var servidor by remember { mutableStateOf(dao.ler("servidor") ?: "http://192.168.0.10:8000") }
     var login by remember { mutableStateOf("carlos.mota") }
     var senha by remember { mutableStateOf("") }
     var nome by remember { mutableStateOf(dao.ler("nome") ?: "") }
     var token by remember { mutableStateOf(dao.ler("token") ?: "") }
     var erro by remember { mutableStateOf("") }
-    var enlace by remember { mutableStateOf("Sem enlace") }
+    var enlace by remember {
+        mutableStateOf(if (dao.ler("token").isNullOrBlank()) "Sem enlace" else "Sincronizando")
+    }
     var sync by remember { mutableStateOf(dao.ler("sync") ?: "nunca") }
-    var alerta by remember { mutableStateOf("") }
+    var alerta by remember { mutableStateOf(dao.ler("alerta") ?: "") }
     var aberto by remember { mutableStateOf<QuadroLocal?>(null) }
     var quadros by remember { mutableStateOf(dao.listar()) }
+    var fila by remember { mutableStateOf(dao.listarFila()) }
+    var versao by remember { mutableIntStateOf(0) }
 
-    fun sincronizar(base: String, acesso: String) {
+    fun recarregar() {
+        quadros = dao.listar()
+        fila = dao.listarFila()
+        sync = dao.ler("sync") ?: sync
+        alerta = dao.ler("alerta") ?: ""
+        versao += 1
+    }
+
+    fun ciclo(base: String, acesso: String) {
         escopo.launch {
+            val pasta = contexto.filesDir
+            withContext(Dispatchers.IO) { drenarFila(dao) }
             try {
                 val lista = withContext(Dispatchers.IO) { baixarQuadros(base, acesso) }
                 withContext(Dispatchers.IO) {
@@ -69,33 +87,54 @@ private fun Tela(dao: QuadroDao) {
                     dao.salvar(lista)
                     dao.gravar(Meta("servidor", base))
                     dao.gravar(Meta("token", acesso))
-                }
-                val agora = java.time.Instant.now().toString()
-                val avisos = runCatching { notificacoes(base, acesso, dao.ler("marco") ?: "") }.getOrDefault(org.json.JSONArray())
-                withContext(Dispatchers.IO) {
+                    val agora = java.time.Instant.now().toString()
                     dao.gravar(Meta("sync", agora))
+                    lista.forEach { quadro ->
+                        if (quadro.arquivoId.isBlank()) return@forEach
+                        runCatching { copiarPdfSeFaltar(dao, base, acesso, quadro.arquivoId, pasta) }
+                    }
+                    val avisos = runCatching {
+                        notificacoes(base, acesso, dao.ler("marco") ?: "")
+                    }.getOrDefault(org.json.JSONArray())
                     if (avisos.length() > 0) {
                         dao.gravar(Meta("marco", avisos.getJSONObject(avisos.length() - 1).getString("criada_em")))
+                        dao.gravar(Meta("alerta", "Revisão nova. Confira a vigente antes de seguir."))
                     }
                 }
-                if (avisos.length() > 0) {
-                    alerta = "Revisão nova. Confira a vigente antes de seguir."
-                }
                 enlace = "No ar"
-                sync = agora
-                quadros = dao.listar()
                 erro = ""
             } catch (falha: Exception) {
                 enlace = "Sem enlace"
                 erro = falha.message ?: "Sem enlace"
-                quadros = dao.listar()
             }
+            recarregar()
+            agendarFila(contexto)
+        }
+    }
+
+    fun enfileirar(item: FilaLocal) {
+        dao.enfileirar(item)
+        recarregar()
+        agendarFila(contexto)
+        if (token.isNotBlank()) ciclo(servidor, token)
+    }
+
+    LaunchedEffect(token) {
+        if (token.isNotBlank()) {
+            agendarFila(contexto)
+            ciclo(servidor, token)
         }
     }
 
     Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Quadros", fontSize = 28.sp, fontWeight = FontWeight.Bold)
-        Text("Sem revisão publicada nesta fase. O PDF ainda não entra.")
+        if (token.isNotBlank() && enlace == "Sem enlace") {
+            Text(
+                "Offline. Última sync $sync. A cópia já baixada abre neste aparelho.",
+                color = MaterialTheme.colorScheme.error,
+                fontWeight = FontWeight.Bold,
+            )
+        }
         if (token.isBlank()) {
             OutlinedTextField(servidor, { servidor = it }, label = { Text("Servidor") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(login, { login = it }, label = { Text("Login") }, modifier = Modifier.fillMaxWidth())
@@ -104,24 +143,25 @@ private fun Tela(dao: QuadroDao) {
                 escopo.launch {
                     try {
                         val sessao = withContext(Dispatchers.IO) { entrar(servidor, login, senha) }
-                        token = sessao.token
-                        nome = sessao.nome
                         withContext(Dispatchers.IO) {
                             dao.gravar(Meta("nome", sessao.nome))
+                            dao.gravar(Meta("servidor", servidor))
+                            dao.gravar(Meta("token", sessao.token))
                         }
-                        sincronizar(servidor, sessao.token)
+                        token = sessao.token
+                        nome = sessao.nome
                     } catch (falha: Exception) {
                         erro = falha.message ?: "Não entrou"
                     }
                 }
             }) { Text("Entrar", fontSize = 18.sp) }
         } else {
-            Text("$nome · $enlace · sync $sync", fontWeight = FontWeight.SemiBold)
+            Text("$nome · $enlace · última sync $sync", fontWeight = FontWeight.SemiBold)
             if (alerta.isNotBlank()) {
                 Text(alerta, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { sincronizar(servidor, token) }) { Text("Atualizar") }
+                Button(onClick = { ciclo(servidor, token) }) { Text("Atualizar") }
                 Button(onClick = {
                     token = ""
                     nome = ""
@@ -133,41 +173,132 @@ private fun Tela(dao: QuadroDao) {
             Text(erro, color = MaterialTheme.colorScheme.error)
         }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(quadros) { quadro ->
-                Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-                    Text("${quadro.codigo}", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                    Text(
-                        if (quadro.vigenteCodigo.isBlank()) "Sem vigente" else "Vigente Rev ${quadro.vigenteCodigo}",
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(quadro.titulo)
-                    Text("${quadro.clienteNome} · ${quadro.ordemNumero}")
-                    Text(
-                        if (quadro.vigenteCodigo.isBlank()) "Vigência não confirmada"
-                        else "Vigente Rev ${quadro.vigenteCodigo}",
-                    )
-                    Button(onClick = { aberto = quadro }) {
-                        Text(if (quadro.vigenteCodigo.isBlank()) "Sem PDF vigente" else "Abrir Rev ${quadro.vigenteCodigo}")
-                    }
-                }
+            items(quadros, key = { it.id }) { quadro ->
+                QuadroCard(
+                    quadro = quadro,
+                    dao = dao,
+                    fila = fila,
+                    versao = versao,
+                    offline = enlace == "Sem enlace",
+                    aoEnfileirar = { enfileirar(it) },
+                    aoAbrir = { aberto = quadro },
+                )
             }
         }
         aberto?.let { quadro ->
-            Visualizador(quadro, servidor, token) { aberto = null }
+            Visualizador(quadro, servidor, token, enlace == "Sem enlace") { aberto = null }
         }
     }
 }
 
 @Composable
-private fun Visualizador(quadro: QuadroLocal, servidor: String, token: String, aoFechar: () -> Unit) {
-    val contexto = androidx.compose.ui.platform.LocalContext.current
+private fun QuadroCard(
+    quadro: QuadroLocal,
+    dao: QuadroDao,
+    fila: List<FilaLocal>,
+    versao: Int,
+    offline: Boolean,
+    aoEnfileirar: (FilaLocal) -> Unit,
+    aoAbrir: () -> Unit,
+) {
+    var texto by remember(quadro.id) { mutableStateOf("") }
+    val confirmada = remember(quadro.id, quadro.vigenteId, versao) { dao.ler("confirmada:${quadro.id}") }
+    val confirmadaEm = remember(quadro.id, versao) { dao.ler("confirmada_em:${quadro.id}") ?: "nunca" }
+    val semConfirmacao = quadro.vigenteId.isNotBlank() && confirmada != quadro.vigenteId
+    val etapaAceita = remember(quadro.id, versao) { dao.ler("etapa:${quadro.id}:fiacao") == "concluida" }
+    val etapas = fila.filter { it.quadroId == quadro.id && it.tipo == "etapa_concluir" && it.etapaCodigo == "fiacao" }
+    val rotulo = rotuloEtapa(
+        aceitaPelaApi = etapaAceita,
+        pendente = etapas.any { it.estado == "na_fila" },
+        ultima = etapas.lastOrNull(),
+    )
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(quadro.codigo, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Text(
+            when {
+                quadro.vigenteId.isBlank() -> "Sem vigente"
+                offline -> "Cópia local Rev ${quadro.vigenteCodigo.ifBlank { "baixada" }}"
+                quadro.vigenteCodigo.isBlank() -> "Vigente no servidor"
+                else -> "Vigente Rev ${quadro.vigenteCodigo}"
+            },
+            fontWeight = FontWeight.SemiBold,
+        )
+        if (quadro.revisaoTipo.isNotBlank() && !offline) {
+            Text("Tipo ${quadro.revisaoTipo}")
+        }
+        Text(quadro.titulo)
+        Text("${quadro.clienteNome} · ${quadro.ordemNumero}")
+        Text("Última confirmada $confirmadaEm")
+        if (fila.any { it.quadroId == quadro.id && it.tipo == "confirmacao_leitura" && it.estado == "na_fila" }) {
+            Text("Confirmação na fila")
+        }
+        if (semConfirmacao) {
+            Text("Vigência não confirmada", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+        }
+        Text("Fiação: $rotulo", fontWeight = FontWeight.SemiBold)
+        Button(onClick = aoAbrir, enabled = quadro.arquivoId.isNotBlank() || quadro.vigenteId.isNotBlank()) {
+            Text(if (offline) "Abrir cópia local" else "Abrir PDF")
+        }
+        if (quadro.vigenteId.isNotBlank()) {
+            Button(onClick = {
+                aoEnfileirar(
+                    novaOperacao(
+                        tipo = "confirmacao_leitura",
+                        quadroId = quadro.id,
+                        revisaoId = quadro.vigenteId,
+                    ),
+                )
+            }) { Text("Confirmar leitura") }
+        }
+        Button(onClick = {
+            aoEnfileirar(
+                novaOperacao(
+                    tipo = "etapa_concluir",
+                    quadroId = quadro.id,
+                    etapaCodigo = "fiacao",
+                ),
+            )
+        }) { Text("Concluir fiação") }
+        OutlinedTextField(
+            texto,
+            { texto = it },
+            label = { Text("Observação") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Button(onClick = {
+            val anotacao = texto.trim()
+            if (anotacao.isBlank()) return@Button
+            texto = ""
+            aoEnfileirar(
+                novaOperacao(
+                    tipo = "observacao",
+                    quadroId = quadro.id,
+                    texto = anotacao,
+                ),
+            )
+        }) { Text("Registrar observação") }
+        fila.filter { it.quadroId == quadro.id && it.tipo == "observacao" }.forEach { item ->
+            Text("${item.texto} · ${rotuloFila(item)} · ${item.ocorridoEm}")
+        }
+    }
+}
+
+@Composable
+private fun Visualizador(
+    quadro: QuadroLocal,
+    servidor: String,
+    token: String,
+    offline: Boolean,
+    aoFechar: () -> Unit,
+) {
+    val contexto = LocalContext.current
     var pagina by remember { mutableStateOf(0) }
     var folhas by remember { mutableStateOf(1) }
     var zoom by remember { mutableStateOf(1f) }
     var cheia by remember { mutableStateOf(false) }
     var bitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     var falha by remember { mutableStateOf("") }
-    var historico by remember { mutableStateOf("") }
+    var historicoTexto by remember { mutableStateOf("") }
 
     fun renderizar(arquivo: java.io.File) {
         val descritor = android.os.ParcelFileDescriptor.open(arquivo, android.os.ParcelFileDescriptor.MODE_READ_ONLY)
@@ -186,36 +317,56 @@ private fun Visualizador(quadro: QuadroLocal, servidor: String, token: String, a
         bitmap = imagem
     }
 
-    androidx.compose.runtime.LaunchedEffect(quadro.id, pagina, zoom) {
+    LaunchedEffect(quadro.id, quadro.arquivoId, pagina, zoom) {
+        val local = java.io.File(contexto.filesDir, "${quadro.arquivoId}.pdf")
+        if (quadro.arquivoId.isNotBlank() && local.exists() && local.length() > 0L) {
+            runCatching { renderizar(local) }
+            falha = ""
+        }
+        if (offline) {
+            if (bitmap == null) falha = "Sem cópia local do PDF"
+            return@LaunchedEffect
+        }
         try {
             val info = withContext(Dispatchers.IO) { historico(servidor, token, quadro.id) }
             val lista = info.getJSONArray("revisoes")
-            historico = (0 until lista.length()).joinToString(" · ") {
+            historicoTexto = (0 until lista.length()).joinToString(" · ") {
                 val item = lista.getJSONObject(it)
                 "Rev ${item.getString("codigo")} ${item.getString("status")}"
             }
             val vigente = info.optString("revisao_vigente_id")
-            var arquivoId = ""
+            var arquivoId = quadro.arquivoId
             for (i in 0 until lista.length()) {
                 val item = lista.getJSONObject(i)
                 if (item.getString("id") == vigente) arquivoId = item.optString("arquivo_id")
             }
             if (arquivoId.isBlank()) {
-                falha = "Sem PDF vigente"
+                if (bitmap == null) falha = "Sem PDF vigente"
                 return@LaunchedEffect
             }
-            val destino = java.io.File(contexto.cacheDir, "$arquivoId.pdf")
-            withContext(Dispatchers.IO) { baixarPdf(servidor, token, arquivoId, destino) }
+            val destino = java.io.File(contexto.filesDir, "$arquivoId.pdf")
+            if (!destino.exists() || destino.length() == 0L) {
+                withContext(Dispatchers.IO) { baixarPdf(servidor, token, arquivoId, destino) }
+            }
             renderizar(destino)
             falha = ""
         } catch (e: Exception) {
-            falha = e.message ?: "PDF não liberado"
+            if (bitmap == null) falha = e.message ?: "PDF não liberado"
         }
     }
 
     Column(modifier = Modifier.padding(if (cheia) 0.dp else 12.dp)) {
-        Text(if (falha.isBlank()) "Rev ${quadro.vigenteCodigo} · folha ${pagina + 1} de $folhas · zoom ${(zoom * 100).toInt()}%" else falha)
-        Text(historico)
+        Text(
+            when {
+                falha.isNotBlank() -> falha
+                offline -> "Cópia local Rev ${quadro.vigenteCodigo} · folha ${pagina + 1} de $folhas · zoom ${(zoom * 100).toInt()}%"
+                else -> "Rev ${quadro.vigenteCodigo} · folha ${pagina + 1} de $folhas · zoom ${(zoom * 100).toInt()}%"
+            },
+        )
+        if (offline) {
+            Text("Cópia local. Esta tela não afirma a vigente do servidor.")
+        }
+        Text(historicoTexto)
         bitmap?.let {
             androidx.compose.foundation.Image(
                 bitmap = it.asImageBitmap(),

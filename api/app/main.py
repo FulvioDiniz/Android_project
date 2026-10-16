@@ -18,13 +18,182 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from app.db import agora, connect, hash_token, init_db
 from app.importacao import gravar_bytes, interpretar_nome, registrar_erro
+from app.liberacao import motivo_recusa_etapa, salto_de_relogio
 
 HASHER = PasswordHasher()
 COOKIE = "quadros_sessao"
 
 
-def erro(status: int, codigo: str, mensagem: str) -> JSONResponse:
-    return JSONResponse(status_code=status, content={"erro": codigo, "mensagem": mensagem})
+def erro(status: int, codigo: str, mensagem: str, extra: dict | None = None) -> JSONResponse:
+    corpo: dict[str, Any] = {"erro": codigo, "mensagem": mensagem}
+    if extra:
+        corpo.update(extra)
+    return JSONResponse(status_code=status, content=corpo)
+
+
+def _vigente(conn: sqlite3.Connection, quadro_id: str | None) -> str | None:
+    if not quadro_id:
+        return None
+    row = conn.execute(
+        "SELECT revisao_vigente_id FROM quadro WHERE id = ?",
+        (quadro_id,),
+    ).fetchone()
+    return None if row is None else row["revisao_vigente_id"]
+
+
+def _recusa(conn: sqlite3.Connection, status: int, codigo: str, mensagem: str, quadro_id: str) -> JSONResponse:
+    return erro(
+        status,
+        codigo,
+        mensagem,
+        {"quadro_id": quadro_id, "revisao_vigente_id": _vigente(conn, quadro_id)},
+    )
+
+
+def _marcar_relogio(conn: sqlite3.Connection, dispositivo_id: str, ocorrido_em: str) -> None:
+    ocorrido = datetime.fromisoformat(ocorrido_em)
+    deslocamento = int((ocorrido - datetime.now(timezone.utc)).total_seconds() * 1000)
+    conn.execute(
+        "UPDATE dispositivo SET ultimo_sync_em = ?, deslocamento_relogio_ms = ? WHERE id = ?",
+        (agora(), deslocamento, dispositivo_id),
+    )
+
+
+def _observacao(conn, sessao, corpo, operacao_id: str, digest: str) -> JSONResponse:
+    texto = str(corpo.get("texto") or "").strip()
+    quadro_id = str(corpo.get("quadro_id") or "")
+    ocorrido = str(corpo.get("ocorrido_em") or "")
+    if not texto or not quadro_id or not ocorrido:
+        return erro(422, "pedido_invalido", "Informe texto, quadro e horário.")
+    if not conn.execute("SELECT 1 FROM quadro WHERE id = ?", (quadro_id,)).fetchone():
+        return erro(404, "nao_encontrado", "Quadro não encontrado.")
+    recebido = agora()
+    obs_id = str(uuid.uuid4())
+    conn.execute(
+        """INSERT INTO observacao
+           (id, quadro_id, revisao_id, tipo, texto, usuario_id, dispositivo_id, operacao_id, ocorrido_em, recebido_em)
+           VALUES (?, ?, ?, 'observacao', ?, ?, ?, ?, ?, ?)""",
+        (obs_id, quadro_id, corpo.get("revisao_id"), texto, sessao["usuario_id"], sessao["dispositivo_id"], operacao_id, ocorrido, recebido),
+    )
+    conn.execute(
+        """INSERT INTO operacao_sincronizacao
+           (operacao_id, dispositivo_id, usuario_id, tipo, payload_hash, resultado_http, erro_codigo, recurso_id, recebido_em)
+           VALUES (?, ?, ?, 'observacao', ?, 201, NULL, ?, ?)""",
+        (operacao_id, sessao["dispositivo_id"], sessao["usuario_id"], digest, obs_id, recebido),
+    )
+    if sessao["dispositivo_id"]:
+        _marcar_relogio(conn, sessao["dispositivo_id"], ocorrido)
+    ponteiro = _vigente(conn, quadro_id)
+    conn.commit()
+    return JSONResponse(
+        {
+            "id": obs_id,
+            "quadro_id": quadro_id,
+            "texto": texto,
+            "ocorrido_em": ocorrido,
+            "status": "aceita",
+            "revisao_vigente_id": ponteiro,
+        },
+        status_code=201,
+    )
+
+
+def _etapa(conn, sessao, corpo, operacao_id: str, digest: str, tipo: str) -> JSONResponse:
+    quadro_id = str(corpo.get("quadro_id") or "")
+    ocorrido = str(corpo.get("ocorrido_em") or "")
+    if not quadro_id or not ocorrido or not sessao["dispositivo_id"]:
+        return erro(422, "pedido_invalido", "Informe quadro, horário e use o tablet.")
+    disp = conn.execute(
+        "SELECT deslocamento_relogio_ms FROM dispositivo WHERE id = ?",
+        (sessao["dispositivo_id"],),
+    ).fetchone()
+    offset = disp["deslocamento_relogio_ms"] if disp else None
+    if salto_de_relogio(offset, ocorrido):
+        conn.execute(
+            """INSERT INTO evento_auditoria
+               (ocorrido_em, ator_usuario_id, ator_dispositivo_id, acao, entidade, entidade_id, quadro_id, operacao_id, detalhe)
+               VALUES (?, ?, ?, 'bloqueio', 'etapa_producao', NULL, ?, ?, 'conflito de relogio')""",
+            (agora(), sessao["usuario_id"], sessao["dispositivo_id"], quadro_id, operacao_id),
+        )
+        conn.commit()
+        return _recusa(
+            conn,
+            409,
+            "relogio_invalido",
+            "Relógio do aparelho fora do deslocamento conhecido. A etapa não mudou.",
+            quadro_id,
+        )
+    recusa = motivo_recusa_etapa(conn, sessao["dispositivo_id"], quadro_id, ocorrido)
+    if recusa:
+        conn.execute(
+            """INSERT INTO evento_auditoria
+               (ocorrido_em, ator_usuario_id, ator_dispositivo_id, acao, entidade, entidade_id, quadro_id, operacao_id, detalhe)
+               VALUES (?, ?, ?, 'bloqueio', 'etapa_producao', NULL, ?, ?, ?)""",
+            (agora(), sessao["usuario_id"], sessao["dispositivo_id"], quadro_id, operacao_id, recusa),
+        )
+        conn.commit()
+        return _recusa(conn, 409, recusa, "A API recusou a etapa.", quadro_id)
+    codigo = str(corpo.get("etapa_codigo") or "fiacao")
+    catalogo = conn.execute("SELECT id FROM etapa_catalogo WHERE codigo = ?", (codigo,)).fetchone()
+    if catalogo is None:
+        return erro(422, "pedido_invalido", "Etapa desconhecida.")
+    atual = conn.execute(
+        "SELECT * FROM etapa_producao WHERE quadro_id = ? AND etapa_catalogo_id = ?",
+        (quadro_id, catalogo["id"]),
+    ).fetchone()
+    if tipo == "etapa_concluir":
+        if atual and atual["status"] == "concluida":
+            status_final = "concluida"
+            etapa_id = atual["id"]
+        elif atual:
+            conn.execute(
+                """UPDATE etapa_producao
+                   SET status = 'concluida', concluida_por = ?, concluida_em = ?, operacao_conclusao_id = ?
+                   WHERE id = ?""",
+                (sessao["usuario_id"], ocorrido, operacao_id, atual["id"]),
+            )
+            etapa_id = atual["id"]
+            status_final = "concluida"
+        else:
+            etapa_id = str(uuid.uuid4())
+            conn.execute(
+                """INSERT INTO etapa_producao
+                   (id, quadro_id, etapa_catalogo_id, status, concluida_por, concluida_em, operacao_conclusao_id)
+                   VALUES (?, ?, ?, 'concluida', ?, ?, ?)""",
+                (etapa_id, quadro_id, catalogo["id"], sessao["usuario_id"], ocorrido, operacao_id),
+            )
+            status_final = "concluida"
+    else:
+        if atual and atual["status"] == "em_andamento":
+            etapa_id = atual["id"]
+            status_final = "em_andamento"
+        else:
+            etapa_id = str(uuid.uuid4())
+            conn.execute(
+                """INSERT INTO etapa_producao
+                   (id, quadro_id, etapa_catalogo_id, status, iniciada_por, iniciada_em, operacao_inicio_id)
+                   VALUES (?, ?, ?, 'em_andamento', ?, ?, ?)""",
+                (etapa_id, quadro_id, catalogo["id"], sessao["usuario_id"], ocorrido, operacao_id),
+            )
+            status_final = "em_andamento"
+    conn.execute(
+        """INSERT INTO operacao_sincronizacao
+           (operacao_id, dispositivo_id, usuario_id, tipo, payload_hash, resultado_http, erro_codigo, recurso_id, recebido_em)
+           VALUES (?, ?, ?, ?, ?, 200, NULL, ?, ?)""",
+        (operacao_id, sessao["dispositivo_id"], sessao["usuario_id"], tipo, digest, etapa_id, agora()),
+    )
+    _marcar_relogio(conn, sessao["dispositivo_id"], ocorrido)
+    ponteiro = _vigente(conn, quadro_id)
+    conn.commit()
+    return JSONResponse(
+        {
+            "id": etapa_id,
+            "quadro_id": quadro_id,
+            "status": status_final,
+            "ocorrido_em": ocorrido,
+            "revisao_vigente_id": ponteiro,
+        }
+    )
 
 
 def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> FastAPI:
@@ -195,6 +364,8 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
             rows = conn.execute(
                 """SELECT q.id, q.codigo, q.titulo, q.status, q.revisao_vigente_id,
                           rv.codigo AS revisao_vigente_codigo,
+                          rv.arquivo_id AS arquivo_id,
+                          rv.tipo AS revisao_tipo,
                           op.numero AS ordem_numero, c.nome AS cliente_nome,
                           u.nome AS responsavel_nome, b.nome AS bancada_nome
                    FROM quadro q
@@ -771,12 +942,19 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
             corpo = {k: v for k, v in corpo.items() if k != "revisao_vigente_id"}
         tipo = str(corpo.get("tipo") or "")
         operacao_id = str(corpo.get("operacao_id") or "")
-        if tipo != "confirmacao_leitura":
-            return erro(422, "pedido_invalido", "Nesta fase a sincronização aceita só confirmação de leitura.")
+        if tipo not in ("confirmacao_leitura", "observacao", "etapa_iniciar", "etapa_concluir"):
+            return erro(422, "pedido_invalido", "Tipo de sincronização ainda não aceito.")
         if not operacao_id:
             return erro(422, "pedido_invalido", "Informe operacao_id.")
         canonico = json.dumps(
-            {"tipo": tipo, "revisao_id": corpo.get("revisao_id"), "ocorrido_em": corpo.get("ocorrido_em")},
+            {
+                "tipo": tipo,
+                "revisao_id": corpo.get("revisao_id"),
+                "quadro_id": corpo.get("quadro_id"),
+                "ocorrido_em": corpo.get("ocorrido_em"),
+                "texto": corpo.get("texto"),
+                "etapa_codigo": corpo.get("etapa_codigo"),
+            },
             sort_keys=True,
         )
         digest = hashlib.sha256(canonico.encode()).hexdigest()
@@ -793,11 +971,24 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
             if previa:
                 if previa["payload_hash"] != digest:
                     return erro(409, "conflito_operacao", "Esta operação já foi usada com outro conteúdo.")
+                tabela = {
+                    "observacao": "observacao",
+                    "etapa_iniciar": "etapa_producao",
+                    "etapa_concluir": "etapa_producao",
+                }.get(previa["tipo"], "confirmacao_leitura")
                 achada = conn.execute(
-                    "SELECT * FROM confirmacao_leitura WHERE id = ?",
+                    f"SELECT * FROM {tabela} WHERE id = ?",
                     (previa["recurso_id"],),
                 ).fetchone()
-                return JSONResponse(dict(achada), status_code=previa["resultado_http"])
+                dados = dict(achada) if achada else {"id": previa["recurso_id"]}
+                quadro_id = str(dados.get("quadro_id") or corpo.get("quadro_id") or "")
+                if quadro_id:
+                    dados["revisao_vigente_id"] = _vigente(conn, quadro_id)
+                return JSONResponse(dados, status_code=previa["resultado_http"])
+            if tipo == "observacao":
+                return _observacao(conn, sessao, corpo, operacao_id, digest)
+            if tipo in ("etapa_iniciar", "etapa_concluir"):
+                return _etapa(conn, sessao, corpo, operacao_id, digest, tipo)
             revisao_id = str(corpo.get("revisao_id") or "")
             ocorrido = str(corpo.get("ocorrido_em") or "")
             if not revisao_id or not ocorrido:
@@ -817,8 +1008,11 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
                        VALUES (?, ?, ?, ?, ?, 200, NULL, ?, ?)""",
                     (operacao_id, sessao["dispositivo_id"], sessao["usuario_id"], tipo, digest, ja["id"], agora()),
                 )
+                _marcar_relogio(conn, sessao["dispositivo_id"], ocorrido)
                 conn.commit()
-                return JSONResponse(dict(ja))
+                dados = dict(ja)
+                dados["revisao_vigente_id"] = _vigente(conn, rev["quadro_id"])
+                return JSONResponse(dados)
             confirmacao_id = str(uuid.uuid4())
             recebido = agora()
             conn.execute(
@@ -839,12 +1033,16 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
                    VALUES (?, ?, ?, 'confirmacao_leitura', 'confirmacao_leitura', ?, ?, ?, ?)""",
                 (recebido, sessao["usuario_id"], sessao["dispositivo_id"], confirmacao_id, rev["quadro_id"], operacao_id, ocorrido),
             )
+            _marcar_relogio(conn, sessao["dispositivo_id"], ocorrido)
             conn.commit()
-            gravada = conn.execute(
-                "SELECT * FROM confirmacao_leitura WHERE id = ?",
-                (confirmacao_id,),
-            ).fetchone()
-        return JSONResponse(dict(gravada), status_code=201)
+            gravada = dict(
+                conn.execute(
+                    "SELECT * FROM confirmacao_leitura WHERE id = ?",
+                    (confirmacao_id,),
+                ).fetchone()
+            )
+            gravada["revisao_vigente_id"] = _vigente(conn, rev["quadro_id"])
+        return JSONResponse(gravada, status_code=201)
 
     @app.websocket("/api/ws")
     async def avisos(websocket: WebSocket) -> None:

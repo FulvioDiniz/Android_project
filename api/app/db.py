@@ -144,6 +144,42 @@ CREATE TABLE IF NOT EXISTS publicacao (
     motivo TEXT
 );
 
+CREATE TABLE IF NOT EXISTS etapa_catalogo (
+    id TEXT PRIMARY KEY,
+    codigo TEXT NOT NULL UNIQUE,
+    nome TEXT NOT NULL,
+    ordem INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS etapa_producao (
+    id TEXT PRIMARY KEY,
+    quadro_id TEXT NOT NULL,
+    etapa_catalogo_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    iniciada_por TEXT,
+    concluida_por TEXT,
+    iniciada_em TEXT,
+    concluida_em TEXT,
+    operacao_inicio_id TEXT,
+    operacao_conclusao_id TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_etapa_aberta
+    ON etapa_producao (quadro_id) WHERE status = 'em_andamento';
+
+CREATE TABLE IF NOT EXISTS observacao (
+    id TEXT PRIMARY KEY,
+    quadro_id TEXT NOT NULL,
+    revisao_id TEXT,
+    tipo TEXT NOT NULL,
+    texto TEXT NOT NULL,
+    usuario_id TEXT NOT NULL,
+    dispositivo_id TEXT,
+    operacao_id TEXT NOT NULL UNIQUE,
+    ocorrido_em TEXT NOT NULL,
+    recebido_em TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS confirmacao_leitura (
     id TEXT PRIMARY KEY,
     revisao_id TEXT NOT NULL,
@@ -288,6 +324,18 @@ def _seed(conn: sqlite3.Connection) -> None:
            (id, identificador_instalacao, apelido, bancada_id, usuario_responsavel_id, status, ultimo_visto_em)
            VALUES (?, ?, ?, ?, ?, 'ativo', ?)""",
         ("dsp-tab", "tablet-fase-1", "Galaxy Tab A11+", "bnc-2", "usr-carlos", criado),
+    )
+    etapas = [
+        ("et-1", "estrutura", "Estrutura", 1),
+        ("et-2", "mecanica", "Mecânica", 2),
+        ("et-3", "fiacao", "Fiação", 3),
+        ("et-4", "identificacao", "Identificação", 4),
+        ("et-5", "teste", "Teste", 5),
+        ("et-6", "expedicao", "Expedição", 6),
+    ]
+    conn.executemany(
+        "INSERT INTO etapa_catalogo (id, codigo, nome, ordem) VALUES (?, ?, ?, ?)",
+        etapas,
     )
 
 

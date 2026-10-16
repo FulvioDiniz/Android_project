@@ -1,6 +1,8 @@
-# Quadros — fase 1
+# Quadros
 
 Cadastro de quadro, sessão por perfil e lista no Galaxy Tab A11+. O banco do servidor é um arquivo SQLite. A engenharia envia o PDF pelo painel (`POST /api/projetos`). O nome `CODIGO-REV.X.pdf` vira revisão pendente. Nome fora do padrão vai para validação manual. O envio não publica. Montagem não envia.
+
+A publicação troca a vigente numa transação. O tablet baixa o PDF com retomada e confirma a leitura com `operacao_id`. Sem rede, a observação e a conclusão de etapa entram na fila local. A tela mostra “na fila” até a API aceitar. A etapa só aparece como concluída depois desse aceite. `informativa` não trava a etapa. `reavaliacao` trava o aparelho que ainda não confirmou. `bloqueio` trava até todos os tablets ativos da bancada, vistos nas últimas 24 horas, confirmarem.
 
 ## API
 
