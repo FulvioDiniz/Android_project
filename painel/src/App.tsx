@@ -18,6 +18,27 @@ type Sessao = {
   usuario: { nome: string };
 };
 
+type Duvida = {
+  id: string;
+  quadro_codigo: string;
+  texto: string;
+  resposta: string | null;
+  usuario: string;
+  fotos: { id: string; hash_sha256: string; legenda: string }[];
+};
+
+type BancadaAndamento = {
+  id: string;
+  nome: string;
+  quadros: {
+    id: string;
+    codigo: string;
+    etapas: { codigo: string; nome: string; status: string }[];
+    pendencias: { id: string; descricao: string; bloqueia_etapa: boolean }[];
+    eventos: { acao: string; detalhe: string }[];
+  }[];
+};
+
 async function api<T>(caminho: string, token: string, opcoes: RequestInit = {}): Promise<T> {
   const resposta = await fetch(caminho, {
     ...opcoes,
@@ -55,6 +76,9 @@ export function App() {
     confirmados: { usuario: string; dispositivo: string; ocorrido_em: string }[];
     faltam: { dispositivo: string }[];
   } | null>(null);
+  const [duvidas, setDuvidas] = useState<Duvida[]>([]);
+  const [bancadas, setBancadas] = useState<BancadaAndamento[]>([]);
+  const [rascunho, setRascunho] = useState<Record<string, string>>({});
 
   async function carregar(token: string) {
     setQuadros(await api<Quadro[]>("/api/quadros", token));
@@ -62,6 +86,8 @@ export function App() {
       setPendentes(await api("/api/revisoes?status=pendente", token));
       setAprovadas(await api("/api/revisoes?status=aprovada", token));
       setErros(await api("/api/erros-importacao?status=aberto", token));
+      setDuvidas(await api<Duvida[]>("/api/observacoes?tipo=duvida", token));
+      setBancadas(await api<BancadaAndamento[]>("/api/bancadas/andamento", token));
     } catch {
         setPendentes([]);
         setAprovadas([]);
@@ -223,6 +249,91 @@ export function App() {
           <p>Faltam: {reconhecimento.faltam.map((item) => item.dispositivo).join(", ") || "ninguém"}</p>
         </div>
       ) : null}
+      <section>
+        <h2>Dúvidas dos montadores</h2>
+        {duvidas.length === 0 ? <p>Nenhuma dúvida.</p> : null}
+        {duvidas.map((item) => (
+          <div key={item.id}>
+            <p>
+              {item.quadro_codigo} · {item.usuario}: {item.texto}
+            </p>
+            {item.fotos.map((foto) => (
+              <p key={foto.id}>
+                Foto {foto.legenda || "sem legenda"} · {foto.hash_sha256}
+              </p>
+            ))}
+            {item.resposta ? (
+              <p>Resposta: {item.resposta}</p>
+            ) : sessao.perfil === "engenharia" ? (
+              <p>
+                <input
+                  value={rascunho[item.id] ?? ""}
+                  onChange={(e) => setRascunho({ ...rascunho, [item.id]: e.target.value })}
+                  placeholder="Resposta da engenharia"
+                />
+                <button
+                  type="button"
+                  onClick={() =>
+                    api(`/api/observacoes/${item.id}/resposta`, sessao.token, {
+                      method: "POST",
+                      body: JSON.stringify({ resposta: rascunho[item.id] ?? "" }),
+                    }).then(() => carregar(sessao.token))
+                  }
+                >
+                  Responder
+                </button>
+              </p>
+            ) : (
+              <p>Sem resposta.</p>
+            )}
+          </div>
+        ))}
+      </section>
+      <section>
+        <h2>Bancadas</h2>
+        {bancadas.map((bancada) => (
+          <div key={bancada.id}>
+            <h3>{bancada.nome}</h3>
+            {bancada.quadros.length === 0 ? <p>Nenhum quadro nesta bancada.</p> : null}
+            {bancada.quadros.map((quadro) => (
+              <div key={quadro.id}>
+                <p>{quadro.codigo}</p>
+                {quadro.etapas.length === 0 ? <p>Sem etapa registrada.</p> : null}
+                {quadro.etapas.map((etapa) => (
+                  <p key={etapa.codigo}>
+                    {etapa.nome}: {etapa.status}
+                  </p>
+                ))}
+                {quadro.pendencias.map((pendencia) => (
+                  <p key={pendencia.id}>
+                    {pendencia.descricao}
+                    {pendencia.bloqueia_etapa ? " · bloqueia a etapa" : ""}
+                    {sessao.perfil === "engenharia" || sessao.perfil === "supervisao" ? (
+                      <button
+                        type="button"
+                        className="secundario"
+                        onClick={() =>
+                          api(`/api/pendencias/${pendencia.id}/resolucao`, sessao.token, {
+                            method: "POST",
+                            body: "{}",
+                          }).then(() => carregar(sessao.token))
+                        }
+                      >
+                        Resolver
+                      </button>
+                    ) : null}
+                  </p>
+                ))}
+                {quadro.eventos.length > 0 ? (
+                  <p>
+                    Trilha: {quadro.eventos.map((evento) => `${evento.acao} ${evento.detalhe}`).join(" · ")}
+                  </p>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ))}
+      </section>
       {sessao.perfil === "engenharia" ? (
         <form className="cadastro" onSubmit={enviarPdf}>
           <h2>Enviar PDF</h2>

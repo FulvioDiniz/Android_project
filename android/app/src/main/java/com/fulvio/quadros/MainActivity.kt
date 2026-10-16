@@ -2,7 +2,9 @@ package com.fulvio.quadros
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -93,6 +96,10 @@ private fun Tela(dao: QuadroDao) {
                         if (quadro.arquivoId.isBlank()) return@forEach
                         runCatching { copiarPdfSeFaltar(dao, base, acesso, quadro.arquivoId, pasta) }
                     }
+                    runCatching { baixarDiario(base, acesso) }.onSuccess { notas ->
+                        dao.limparDiario()
+                        if (notas.isNotEmpty()) dao.salvarDiario(notas)
+                    }
                     val avisos = runCatching {
                         notificacoes(base, acesso, dao.ler("marco") ?: "")
                     }.getOrDefault(org.json.JSONArray())
@@ -112,8 +119,8 @@ private fun Tela(dao: QuadroDao) {
         }
     }
 
-    fun enfileirar(item: FilaLocal) {
-        dao.enfileirar(item)
+    fun enfileirar(itens: List<FilaLocal>) {
+        itens.forEach { dao.enfileirar(it) }
         recarregar()
         agendarFila(contexto)
         if (token.isNotBlank()) ciclo(servidor, token)
@@ -180,7 +187,8 @@ private fun Tela(dao: QuadroDao) {
                     fila = fila,
                     versao = versao,
                     offline = enlace == "Sem enlace",
-                    aoEnfileirar = { enfileirar(it) },
+                    aoEnfileirar = { enfileirar(listOf(it)) },
+                    aoEnfileirarVarias = { enfileirar(it) },
                     aoAbrir = { aberto = quadro },
                 )
             }
@@ -199,19 +207,45 @@ private fun QuadroCard(
     versao: Int,
     offline: Boolean,
     aoEnfileirar: (FilaLocal) -> Unit,
+    aoEnfileirarVarias: (List<FilaLocal>) -> Unit,
     aoAbrir: () -> Unit,
 ) {
+    val contexto = LocalContext.current
     var texto by remember(quadro.id) { mutableStateOf("") }
+    var bloqueia by remember(quadro.id) { mutableStateOf(true) }
     val confirmada = remember(quadro.id, quadro.vigenteId, versao) { dao.ler("confirmada:${quadro.id}") }
     val confirmadaEm = remember(quadro.id, versao) { dao.ler("confirmada_em:${quadro.id}") ?: "nunca" }
     val semConfirmacao = quadro.vigenteId.isNotBlank() && confirmada != quadro.vigenteId
-    val etapaAceita = remember(quadro.id, versao) { dao.ler("etapa:${quadro.id}:fiacao") == "concluida" }
+    val etapaEstado = remember(quadro.id, versao) { dao.ler("etapa:${quadro.id}:fiacao") }
     val etapas = fila.filter { it.quadroId == quadro.id && it.tipo == "etapa_concluir" && it.etapaCodigo == "fiacao" }
-    val rotulo = rotuloEtapa(
-        aceitaPelaApi = etapaAceita,
-        pendente = etapas.any { it.estado == "na_fila" },
-        ultima = etapas.lastOrNull(),
-    )
+    val inicios = fila.filter { it.quadroId == quadro.id && it.tipo == "etapa_iniciar" && it.etapaCodigo == "fiacao" }
+    val rotulo = when {
+        etapaEstado == "concluida" -> "concluída"
+        etapas.any { it.estado == "na_fila" } || inicios.any { it.estado == "na_fila" } -> "na fila"
+        etapaEstado == "em_andamento" -> "em andamento"
+        else -> rotuloEtapa(false, false, etapas.lastOrNull() ?: inicios.lastOrNull())
+    }
+    val pegarFoto = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        val anotacao = texto.trim()
+        if (uri == null || anotacao.isBlank()) return@rememberLauncherForActivityResult
+        val duvida = novaOperacao(tipo = "duvida", quadroId = quadro.id, texto = anotacao)
+        val destino = java.io.File(contexto.filesDir, "${duvida.operacaoId}.jpg")
+        contexto.contentResolver.openInputStream(uri)?.use { entrada ->
+            destino.outputStream().use { entrada.copyTo(it) }
+        } ?: return@rememberLauncherForActivityResult
+        val foto = novaOperacao(
+            tipo = "foto",
+            quadroId = quadro.id,
+            texto = anotacao,
+            extra = org.json.JSONObject()
+                .put("caminho", destino.absolutePath)
+                .put("observacao_operacao", duvida.operacaoId)
+                .toString(),
+        )
+        texto = ""
+        aoEnfileirarVarias(listOf(duvida, foto))
+    }
+    val notas = remember(quadro.id, versao) { dao.diarioDo(quadro.id) }
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(quadro.codigo, fontSize = 22.sp, fontWeight = FontWeight.Bold)
         Text(
@@ -253,6 +287,15 @@ private fun QuadroCard(
         Button(onClick = {
             aoEnfileirar(
                 novaOperacao(
+                    tipo = "etapa_iniciar",
+                    quadroId = quadro.id,
+                    etapaCodigo = "fiacao",
+                ),
+            )
+        }) { Text("Iniciar fiação") }
+        Button(onClick = {
+            aoEnfileirar(
+                novaOperacao(
                     tipo = "etapa_concluir",
                     quadroId = quadro.id,
                     etapaCodigo = "fiacao",
@@ -262,7 +305,7 @@ private fun QuadroCard(
         OutlinedTextField(
             texto,
             { texto = it },
-            label = { Text("Observação") },
+            label = { Text("Observação ou dúvida") },
             modifier = Modifier.fillMaxWidth(),
         )
         Button(onClick = {
@@ -277,8 +320,37 @@ private fun QuadroCard(
                 ),
             )
         }) { Text("Registrar observação") }
-        fila.filter { it.quadroId == quadro.id && it.tipo == "observacao" }.forEach { item ->
-            Text("${item.texto} · ${rotuloFila(item)} · ${item.ocorridoEm}")
+        Button(onClick = { pegarFoto.launch("image/*") }) { Text("Dúvida com foto") }
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Checkbox(checked = bloqueia, onCheckedChange = { bloqueia = it })
+            Text(if (bloqueia) "Pendência bloqueia a etapa" else "Pendência não bloqueia")
+        }
+        Button(onClick = {
+            val anotacao = texto.trim()
+            if (anotacao.isBlank()) return@Button
+            texto = ""
+            aoEnfileirar(
+                novaOperacao(
+                    tipo = "pendencia",
+                    quadroId = quadro.id,
+                    texto = anotacao,
+                    extra = org.json.JSONObject().put("bloqueia_etapa", bloqueia).toString(),
+                ),
+            )
+        }) { Text("Registrar pendência") }
+        fila.filter { it.quadroId == quadro.id && it.tipo in listOf("observacao", "duvida", "foto", "pendencia") }.forEach { item ->
+            val nome = when (item.tipo) {
+                "duvida" -> "Dúvida"
+                "foto" -> "Foto"
+                "pendencia" -> "Pendência"
+                else -> "Observação"
+            }
+            Text("$nome: ${item.texto} · ${rotuloFila(item)} · ${item.ocorridoEm}")
+        }
+        notas.forEach { nota ->
+            if (nota.resposta.isNotBlank()) {
+                Text("Resposta da engenharia: ${nota.resposta}", fontWeight = FontWeight.SemiBold)
+            }
         }
     }
 }

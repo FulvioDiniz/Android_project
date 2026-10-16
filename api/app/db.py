@@ -173,11 +173,60 @@ CREATE TABLE IF NOT EXISTS observacao (
     revisao_id TEXT,
     tipo TEXT NOT NULL,
     texto TEXT NOT NULL,
+    resposta TEXT,
+    respondida_por TEXT,
+    respondida_em TEXT,
     usuario_id TEXT NOT NULL,
     dispositivo_id TEXT,
     operacao_id TEXT NOT NULL UNIQUE,
     ocorrido_em TEXT NOT NULL,
     recebido_em TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS foto (
+    id TEXT PRIMARY KEY,
+    quadro_id TEXT NOT NULL,
+    arquivo_id TEXT NOT NULL UNIQUE,
+    observacao_id TEXT,
+    pendencia_id TEXT,
+    legenda TEXT NOT NULL DEFAULT '',
+    usuario_id TEXT NOT NULL,
+    dispositivo_id TEXT,
+    operacao_id TEXT NOT NULL UNIQUE,
+    ocorrido_em TEXT NOT NULL,
+    recebido_em TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS pendencia (
+    id TEXT PRIMARY KEY,
+    quadro_id TEXT NOT NULL,
+    revisao_id TEXT,
+    descricao TEXT NOT NULL,
+    status TEXT NOT NULL,
+    bloqueia_etapa INTEGER NOT NULL DEFAULT 0,
+    resolvida_por TEXT,
+    resolvida_em TEXT,
+    usuario_id TEXT NOT NULL,
+    dispositivo_id TEXT,
+    operacao_id TEXT NOT NULL UNIQUE,
+    ocorrido_em TEXT NOT NULL,
+    recebido_em TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS ix_pendencia_aberta
+    ON pendencia (quadro_id) WHERE status IN ('aberta', 'em_analise');
+
+CREATE TABLE IF NOT EXISTS upload_parcial (
+    operacao_id TEXT PRIMARY KEY,
+    hash_sha256 TEXT NOT NULL,
+    tamanho_bytes INTEGER NOT NULL,
+    quadro_id TEXT NOT NULL,
+    usuario_id TEXT NOT NULL,
+    dispositivo_id TEXT,
+    ocorrido_em TEXT NOT NULL,
+    observacao_id TEXT,
+    legenda TEXT NOT NULL DEFAULT '',
+    recebido_bytes INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS confirmacao_leitura (
@@ -286,8 +335,19 @@ def init_db(path: str) -> None:
     with connect(path) as conn:
         conn.executescript(SCHEMA)
         conn.executescript(TRIGGERS)
+        _garantir_colunas(conn)
         _seed(conn)
         conn.commit()
+
+
+def _garantir_colunas(conn: sqlite3.Connection) -> None:
+    nomes = {row["name"] for row in conn.execute("PRAGMA table_info(observacao)")}
+    if "resposta" not in nomes:
+        conn.execute("ALTER TABLE observacao ADD COLUMN resposta TEXT")
+    if "respondida_por" not in nomes:
+        conn.execute("ALTER TABLE observacao ADD COLUMN respondida_por TEXT")
+    if "respondida_em" not in nomes:
+        conn.execute("ALTER TABLE observacao ADD COLUMN respondida_em TEXT")
 
 
 def _seed(conn: sqlite3.Connection) -> None:

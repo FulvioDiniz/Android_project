@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import queue
 import secrets
 import sqlite3
@@ -59,7 +60,7 @@ def _marcar_relogio(conn: sqlite3.Connection, dispositivo_id: str, ocorrido_em: 
     )
 
 
-def _observacao(conn, sessao, corpo, operacao_id: str, digest: str) -> JSONResponse:
+def _observacao(conn, sessao, corpo, operacao_id: str, digest: str, tipo: str = "observacao") -> JSONResponse:
     texto = str(corpo.get("texto") or "").strip()
     quadro_id = str(corpo.get("quadro_id") or "")
     ocorrido = str(corpo.get("ocorrido_em") or "")
@@ -72,14 +73,20 @@ def _observacao(conn, sessao, corpo, operacao_id: str, digest: str) -> JSONRespo
     conn.execute(
         """INSERT INTO observacao
            (id, quadro_id, revisao_id, tipo, texto, usuario_id, dispositivo_id, operacao_id, ocorrido_em, recebido_em)
-           VALUES (?, ?, ?, 'observacao', ?, ?, ?, ?, ?, ?)""",
-        (obs_id, quadro_id, corpo.get("revisao_id"), texto, sessao["usuario_id"], sessao["dispositivo_id"], operacao_id, ocorrido, recebido),
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (obs_id, quadro_id, corpo.get("revisao_id"), tipo, texto, sessao["usuario_id"], sessao["dispositivo_id"], operacao_id, ocorrido, recebido),
     )
     conn.execute(
         """INSERT INTO operacao_sincronizacao
            (operacao_id, dispositivo_id, usuario_id, tipo, payload_hash, resultado_http, erro_codigo, recurso_id, recebido_em)
-           VALUES (?, ?, ?, 'observacao', ?, 201, NULL, ?, ?)""",
-        (operacao_id, sessao["dispositivo_id"], sessao["usuario_id"], digest, obs_id, recebido),
+           VALUES (?, ?, ?, ?, ?, 201, NULL, ?, ?)""",
+        (operacao_id, sessao["dispositivo_id"], sessao["usuario_id"], tipo, digest, obs_id, recebido),
+    )
+    conn.execute(
+        """INSERT INTO evento_auditoria
+           (ocorrido_em, ator_usuario_id, ator_dispositivo_id, acao, entidade, entidade_id, quadro_id, operacao_id, detalhe)
+           VALUES (?, ?, ?, ?, 'observacao', ?, ?, ?, ?)""",
+        (recebido, sessao["usuario_id"], sessao["dispositivo_id"], tipo, obs_id, quadro_id, operacao_id, texto),
     )
     if sessao["dispositivo_id"]:
         _marcar_relogio(conn, sessao["dispositivo_id"], ocorrido)
@@ -89,9 +96,69 @@ def _observacao(conn, sessao, corpo, operacao_id: str, digest: str) -> JSONRespo
         {
             "id": obs_id,
             "quadro_id": quadro_id,
+            "tipo": tipo,
             "texto": texto,
+            "resposta": None,
             "ocorrido_em": ocorrido,
             "status": "aceita",
+            "revisao_vigente_id": ponteiro,
+        },
+        status_code=201,
+    )
+
+
+def _pendencia(conn, sessao, corpo, operacao_id: str, digest: str) -> JSONResponse:
+    descricao = str(corpo.get("descricao") or corpo.get("texto") or "").strip()
+    quadro_id = str(corpo.get("quadro_id") or "")
+    ocorrido = str(corpo.get("ocorrido_em") or "")
+    if not descricao or not quadro_id or not ocorrido:
+        return erro(422, "pedido_invalido", "Informe descrição, quadro e horário.")
+    if not conn.execute("SELECT 1 FROM quadro WHERE id = ?", (quadro_id,)).fetchone():
+        return erro(404, "nao_encontrado", "Quadro não encontrado.")
+    bloqueia = 1 if corpo.get("bloqueia_etapa") in (True, 1, "1", "true") else 0
+    recebido = agora()
+    pendencia_id = str(uuid.uuid4())
+    conn.execute(
+        """INSERT INTO pendencia
+           (id, quadro_id, revisao_id, descricao, status, bloqueia_etapa, usuario_id, dispositivo_id, operacao_id, ocorrido_em, recebido_em)
+           VALUES (?, ?, ?, ?, 'aberta', ?, ?, ?, ?, ?, ?)""",
+        (
+            pendencia_id,
+            quadro_id,
+            corpo.get("revisao_id"),
+            descricao,
+            bloqueia,
+            sessao["usuario_id"],
+            sessao["dispositivo_id"],
+            operacao_id,
+            ocorrido,
+            recebido,
+        ),
+    )
+    conn.execute(
+        """INSERT INTO operacao_sincronizacao
+           (operacao_id, dispositivo_id, usuario_id, tipo, payload_hash, resultado_http, erro_codigo, recurso_id, recebido_em)
+           VALUES (?, ?, ?, 'pendencia', ?, 201, NULL, ?, ?)""",
+        (operacao_id, sessao["dispositivo_id"], sessao["usuario_id"], digest, pendencia_id, recebido),
+    )
+    conn.execute(
+        """INSERT INTO evento_auditoria
+           (ocorrido_em, ator_usuario_id, ator_dispositivo_id, acao, entidade, entidade_id, quadro_id, operacao_id, detalhe)
+           VALUES (?, ?, ?, 'pendencia', 'pendencia', ?, ?, ?, ?)""",
+        (recebido, sessao["usuario_id"], sessao["dispositivo_id"], pendencia_id, quadro_id, operacao_id, descricao),
+    )
+    if sessao["dispositivo_id"]:
+        _marcar_relogio(conn, sessao["dispositivo_id"], ocorrido)
+    ponteiro = _vigente(conn, quadro_id)
+    conn.commit()
+    return JSONResponse(
+        {
+            "id": pendencia_id,
+            "quadro_id": quadro_id,
+            "descricao": descricao,
+            "status": "aberta",
+            "bloqueia_etapa": bool(bloqueia),
+            "ocorrido_em": ocorrido,
             "revisao_vigente_id": ponteiro,
         },
         status_code=201,
@@ -133,6 +200,21 @@ def _etapa(conn, sessao, corpo, operacao_id: str, digest: str, tipo: str) -> JSO
         )
         conn.commit()
         return _recusa(conn, 409, recusa, "A API recusou a etapa.", quadro_id)
+    if tipo == "etapa_concluir":
+        aberta = conn.execute(
+            """SELECT 1 FROM pendencia
+               WHERE quadro_id = ? AND bloqueia_etapa = 1 AND status IN ('aberta', 'em_analise')""",
+            (quadro_id,),
+        ).fetchone()
+        if aberta:
+            conn.execute(
+                """INSERT INTO evento_auditoria
+                   (ocorrido_em, ator_usuario_id, ator_dispositivo_id, acao, entidade, entidade_id, quadro_id, operacao_id, detalhe)
+                   VALUES (?, ?, ?, 'bloqueio', 'etapa_producao', NULL, ?, ?, 'bloqueio_pendencia')""",
+                (agora(), sessao["usuario_id"], sessao["dispositivo_id"], quadro_id, operacao_id),
+            )
+            conn.commit()
+            return _recusa(conn, 409, "bloqueio_pendencia", "Pendência aberta impede concluir a etapa.", quadro_id)
     codigo = str(corpo.get("etapa_codigo") or "fiacao")
     catalogo = conn.execute("SELECT id FROM etapa_catalogo WHERE codigo = ?", (codigo,)).fetchone()
     if catalogo is None:
@@ -181,6 +263,12 @@ def _etapa(conn, sessao, corpo, operacao_id: str, digest: str, tipo: str) -> JSO
            (operacao_id, dispositivo_id, usuario_id, tipo, payload_hash, resultado_http, erro_codigo, recurso_id, recebido_em)
            VALUES (?, ?, ?, ?, ?, 200, NULL, ?, ?)""",
         (operacao_id, sessao["dispositivo_id"], sessao["usuario_id"], tipo, digest, etapa_id, agora()),
+    )
+    conn.execute(
+        """INSERT INTO evento_auditoria
+           (ocorrido_em, ator_usuario_id, ator_dispositivo_id, acao, entidade, entidade_id, quadro_id, operacao_id, detalhe)
+           VALUES (?, ?, ?, 'mudanca_etapa', 'etapa_producao', ?, ?, ?, ?)""",
+        (agora(), sessao["usuario_id"], sessao["dispositivo_id"], etapa_id, quadro_id, operacao_id, status_final),
     )
     _marcar_relogio(conn, sessao["dispositivo_id"], ocorrido)
     ponteiro = _vigente(conn, quadro_id)
@@ -826,6 +914,8 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
         )
 
     def pode_baixar(conn: sqlite3.Connection, sessao: sqlite3.Row, arquivo_id: str) -> bool:
+        if conn.execute("SELECT 1 FROM foto WHERE arquivo_id = ?", (arquivo_id,)).fetchone():
+            return True
         ligado = conn.execute(
             """SELECT q.status FROM revisao r
                JOIN quadro q ON q.id = r.quadro_id
@@ -847,10 +937,11 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
                 return erro(403 if row else 404, "nao_encontrado" if row is None else "perfil_insuficiente", "Arquivo indisponível.")
             caminho = app.state.arquivos / row["area"] / arquivo_id
             etag = row["hash_sha256"]
+            mime = row["mime"] or "application/octet-stream"
             conn.commit()
         if not caminho.is_file():
             return erro(404, "nao_encontrado", "Arquivo indisponível.")
-        return FileResponse(caminho, media_type="application/pdf", headers={"ETag": etag})
+        return FileResponse(caminho, media_type=mime, headers={"ETag": etag})
 
     @app.get("/api/notificacoes")
     def listar_notificacoes(request: Request, desde: str = "") -> JSONResponse:
@@ -942,7 +1033,7 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
             corpo = {k: v for k, v in corpo.items() if k != "revisao_vigente_id"}
         tipo = str(corpo.get("tipo") or "")
         operacao_id = str(corpo.get("operacao_id") or "")
-        if tipo not in ("confirmacao_leitura", "observacao", "etapa_iniciar", "etapa_concluir"):
+        if tipo not in ("confirmacao_leitura", "observacao", "duvida", "pendencia", "etapa_iniciar", "etapa_concluir"):
             return erro(422, "pedido_invalido", "Tipo de sincronização ainda não aceito.")
         if not operacao_id:
             return erro(422, "pedido_invalido", "Informe operacao_id.")
@@ -953,6 +1044,8 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
                 "quadro_id": corpo.get("quadro_id"),
                 "ocorrido_em": corpo.get("ocorrido_em"),
                 "texto": corpo.get("texto"),
+                "descricao": corpo.get("descricao"),
+                "bloqueia_etapa": corpo.get("bloqueia_etapa"),
                 "etapa_codigo": corpo.get("etapa_codigo"),
             },
             sort_keys=True,
@@ -973,6 +1066,9 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
                     return erro(409, "conflito_operacao", "Esta operação já foi usada com outro conteúdo.")
                 tabela = {
                     "observacao": "observacao",
+                    "duvida": "observacao",
+                    "pendencia": "pendencia",
+                    "foto": "foto",
                     "etapa_iniciar": "etapa_producao",
                     "etapa_concluir": "etapa_producao",
                 }.get(previa["tipo"], "confirmacao_leitura")
@@ -985,8 +1081,10 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
                 if quadro_id:
                     dados["revisao_vigente_id"] = _vigente(conn, quadro_id)
                 return JSONResponse(dados, status_code=previa["resultado_http"])
-            if tipo == "observacao":
-                return _observacao(conn, sessao, corpo, operacao_id, digest)
+            if tipo in ("observacao", "duvida"):
+                return _observacao(conn, sessao, corpo, operacao_id, digest, tipo)
+            if tipo == "pendencia":
+                return _pendencia(conn, sessao, corpo, operacao_id, digest)
             if tipo in ("etapa_iniciar", "etapa_concluir"):
                 return _etapa(conn, sessao, corpo, operacao_id, digest, tipo)
             revisao_id = str(corpo.get("revisao_id") or "")
@@ -1043,6 +1141,385 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
             )
             gravada["revisao_vigente_id"] = _vigente(conn, rev["quadro_id"])
         return JSONResponse(gravada, status_code=201)
+
+    def _foto_pronta(conn: sqlite3.Connection, operacao_id: str) -> sqlite3.Row | None:
+        return conn.execute("SELECT * FROM foto WHERE operacao_id = ?", (operacao_id,)).fetchone()
+
+    def _json_foto(conn: sqlite3.Connection, foto: sqlite3.Row, completo: bool = True) -> dict[str, Any]:
+        arquivo = conn.execute("SELECT hash_sha256 FROM arquivo WHERE id = ?", (foto["arquivo_id"],)).fetchone()
+        return {
+            "id": foto["id"],
+            "quadro_id": foto["quadro_id"],
+            "arquivo_id": foto["arquivo_id"],
+            "observacao_id": foto["observacao_id"],
+            "hash_sha256": arquivo["hash_sha256"] if arquivo else None,
+            "ocorrido_em": foto["ocorrido_em"],
+            "completo": completo,
+            "revisao_vigente_id": _vigente(conn, foto["quadro_id"]),
+        }
+
+    @app.post("/api/uploads")
+    def abrir_upload(corpo: dict[str, Any], request: Request) -> JSONResponse:
+        operacao_id = str(corpo.get("operacao_id") or "")
+        digest = str(corpo.get("hash_sha256") or "")
+        quadro_id = str(corpo.get("quadro_id") or "")
+        ocorrido = str(corpo.get("ocorrido_em") or "")
+        try:
+            tamanho = int(corpo.get("tamanho_bytes"))
+        except (TypeError, ValueError):
+            tamanho = 0
+        if not operacao_id or len(digest) != 64 or not quadro_id or not ocorrido or tamanho <= 0:
+            return erro(422, "pedido_invalido", "Informe operação, hash, tamanho, quadro e horário.")
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            if not sessao["dispositivo_id"]:
+                return erro(422, "pedido_invalido", "A foto sai do tablet.")
+            pronta = _foto_pronta(conn, operacao_id)
+            if pronta:
+                return JSONResponse(_json_foto(conn, pronta))
+            if not conn.execute("SELECT 1 FROM quadro WHERE id = ?", (quadro_id,)).fetchone():
+                return erro(404, "nao_encontrado", "Quadro não encontrado.")
+            parcial = conn.execute(
+                "SELECT * FROM upload_parcial WHERE operacao_id = ?",
+                (operacao_id,),
+            ).fetchone()
+            if parcial:
+                if parcial["hash_sha256"] != digest or parcial["tamanho_bytes"] != tamanho or parcial["quadro_id"] != quadro_id:
+                    return erro(409, "conflito_operacao", "Esta foto já começou com outro conteúdo.")
+                return JSONResponse(
+                    {
+                        "operacao_id": operacao_id,
+                        "recebido_bytes": parcial["recebido_bytes"],
+                        "completo": False,
+                        "revisao_vigente_id": _vigente(conn, quadro_id),
+                    }
+                )
+            conn.execute(
+                """INSERT INTO upload_parcial
+                   (operacao_id, hash_sha256, tamanho_bytes, quadro_id, usuario_id, dispositivo_id, ocorrido_em, observacao_id, legenda, recebido_bytes)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)""",
+                (
+                    operacao_id,
+                    digest,
+                    tamanho,
+                    quadro_id,
+                    sessao["usuario_id"],
+                    sessao["dispositivo_id"],
+                    ocorrido,
+                    corpo.get("observacao_id"),
+                    str(corpo.get("legenda") or ""),
+                ),
+            )
+            conn.commit()
+        pasta = app.state.arquivos / "parciais"
+        pasta.mkdir(parents=True, exist_ok=True)
+        (pasta / f"{operacao_id}.part").touch()
+        return JSONResponse(
+            {"operacao_id": operacao_id, "recebido_bytes": 0, "completo": False},
+            status_code=201,
+        )
+
+    @app.put("/api/uploads/{operacao_id}")
+    async def receber_upload(operacao_id: str, request: Request) -> JSONResponse:
+        faixa = request.headers.get("content-range") or ""
+        bloco = await request.body()
+        casou = re.fullmatch(r"bytes (\d+)-(\d+)/(\d+)", faixa.strip())
+        if not casou:
+            return erro(422, "pedido_invalido", "Informe Content-Range bytes início-fim/total.")
+        inicio, fim, total = (int(casou.group(i)) for i in range(1, 4))
+        if fim < inicio or fim - inicio + 1 != len(bloco):
+            return erro(422, "pedido_invalido", "A faixa não fecha com o corpo enviado.")
+        caminho = app.state.arquivos / "parciais" / f"{operacao_id}.part"
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            pronta = _foto_pronta(conn, operacao_id)
+            if pronta:
+                return JSONResponse(_json_foto(conn, pronta))
+            parcial = conn.execute(
+                "SELECT * FROM upload_parcial WHERE operacao_id = ?",
+                (operacao_id,),
+            ).fetchone()
+            if parcial is None:
+                return erro(404, "nao_encontrado", "Upload não aberto.")
+            if total != parcial["tamanho_bytes"]:
+                return erro(422, "pedido_invalido", "O total da faixa não é o tamanho anunciado.")
+            if inicio != parcial["recebido_bytes"]:
+                return erro(
+                    422,
+                    "pedido_invalido",
+                    "Retome do byte já gravado.",
+                    {"recebido_bytes": parcial["recebido_bytes"]},
+                )
+            caminho.parent.mkdir(parents=True, exist_ok=True)
+            if not caminho.exists():
+                caminho.touch()
+            with caminho.open("r+b") as destino:
+                destino.truncate(inicio)
+                destino.seek(inicio)
+                destino.write(bloco)
+            recebido = inicio + len(bloco)
+            if recebido < parcial["tamanho_bytes"]:
+                conn.execute(
+                    "UPDATE upload_parcial SET recebido_bytes = ? WHERE operacao_id = ?",
+                    (recebido, operacao_id),
+                )
+                conn.commit()
+                return JSONResponse(
+                    {
+                        "operacao_id": operacao_id,
+                        "recebido_bytes": recebido,
+                        "completo": False,
+                        "revisao_vigente_id": _vigente(conn, parcial["quadro_id"]),
+                    }
+                )
+            digest = hashlib.sha256(caminho.read_bytes()).hexdigest()
+            if digest != parcial["hash_sha256"]:
+                with caminho.open("r+b") as destino:
+                    destino.truncate(inicio)
+                return erro(422, "pedido_invalido", "O hash da foto não confere. Nada foi gravado.")
+            arquivo_id = str(uuid.uuid4())
+            final = app.state.arquivos / "fotos" / arquivo_id
+            final.parent.mkdir(parents=True, exist_ok=True)
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                momento = agora()
+                conn.execute(
+                    """INSERT INTO arquivo
+                       (id, hash_sha256, tamanho_bytes, mime, nome_original, area, criado_em)
+                       VALUES (?, ?, ?, 'image/jpeg', ?, 'fotos', ?)""",
+                    (arquivo_id, digest, parcial["tamanho_bytes"], f"{operacao_id}.jpg", momento),
+                )
+                foto_id = str(uuid.uuid4())
+                conn.execute(
+                    """INSERT INTO foto
+                       (id, quadro_id, arquivo_id, observacao_id, pendencia_id, legenda, usuario_id, dispositivo_id, operacao_id, ocorrido_em, recebido_em)
+                       VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        foto_id,
+                        parcial["quadro_id"],
+                        arquivo_id,
+                        parcial["observacao_id"],
+                        parcial["legenda"],
+                        parcial["usuario_id"],
+                        parcial["dispositivo_id"],
+                        operacao_id,
+                        parcial["ocorrido_em"],
+                        momento,
+                    ),
+                )
+                conn.execute(
+                    """INSERT INTO operacao_sincronizacao
+                       (operacao_id, dispositivo_id, usuario_id, tipo, payload_hash, resultado_http, erro_codigo, recurso_id, recebido_em)
+                       VALUES (?, ?, ?, 'foto', ?, 201, NULL, ?, ?)""",
+                    (operacao_id, parcial["dispositivo_id"], parcial["usuario_id"], digest, foto_id, momento),
+                )
+                conn.execute(
+                    """INSERT INTO evento_auditoria
+                       (ocorrido_em, ator_usuario_id, ator_dispositivo_id, acao, entidade, entidade_id, quadro_id, operacao_id, detalhe)
+                       VALUES (?, ?, ?, 'foto', 'foto', ?, ?, ?, ?)""",
+                    (momento, parcial["usuario_id"], parcial["dispositivo_id"], foto_id, parcial["quadro_id"], operacao_id, digest),
+                )
+                conn.execute("DELETE FROM upload_parcial WHERE operacao_id = ?", (operacao_id,))
+                caminho.replace(final)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            foto = conn.execute("SELECT * FROM foto WHERE id = ?", (foto_id,)).fetchone()
+            if parcial["dispositivo_id"]:
+                _marcar_relogio(conn, parcial["dispositivo_id"], parcial["ocorrido_em"])
+                conn.commit()
+            corpo_foto = _json_foto(conn, foto)
+        return JSONResponse(corpo_foto, status_code=201)
+
+    @app.get("/api/observacoes")
+    def listar_observacoes(request: Request, tipo: str = "") -> JSONResponse:
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            rows = conn.execute(
+                """SELECT o.id, o.quadro_id, q.codigo AS quadro_codigo, o.tipo, o.texto, o.resposta,
+                          o.ocorrido_em, o.respondida_em, u.nome AS usuario
+                   FROM observacao o
+                   JOIN quadro q ON q.id = o.quadro_id
+                   JOIN usuario u ON u.id = o.usuario_id
+                   WHERE (? = '' OR o.tipo = ?)
+                   ORDER BY o.recebido_em""",
+                (tipo, tipo),
+            ).fetchall()
+            saida = []
+            for row in rows:
+                item = dict(row)
+                item["fotos"] = [
+                    {
+                        "id": foto["id"],
+                        "arquivo_id": foto["arquivo_id"],
+                        "hash_sha256": foto["hash_sha256"],
+                        "legenda": foto["legenda"],
+                    }
+                    for foto in conn.execute(
+                        """SELECT f.id, f.arquivo_id, f.legenda, a.hash_sha256
+                           FROM foto f JOIN arquivo a ON a.id = f.arquivo_id
+                           WHERE f.observacao_id = ?""",
+                        (row["id"],),
+                    ).fetchall()
+                ]
+                saida.append(item)
+            conn.commit()
+        return JSONResponse(saida)
+
+    @app.post("/api/observacoes/{observacao_id}/resposta")
+    def responder_observacao(observacao_id: str, corpo: dict[str, Any], request: Request) -> JSONResponse:
+        resposta = str(corpo.get("resposta") or "").strip()
+        if not resposta:
+            return erro(422, "pedido_invalido", "Informe a resposta.")
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            if sessao["perfil"] != "engenharia":
+                return erro(403, "perfil_insuficiente", "Quem responde dúvida é a engenharia.")
+            obs = conn.execute("SELECT * FROM observacao WHERE id = ?", (observacao_id,)).fetchone()
+            if obs is None:
+                return erro(404, "nao_encontrado", "Dúvida não encontrada.")
+            if obs["resposta"]:
+                return JSONResponse(
+                    {"id": obs["id"], "resposta": obs["resposta"], "respondida_em": obs["respondida_em"]}
+                )
+            momento = agora()
+            conn.execute(
+                """UPDATE observacao
+                   SET resposta = ?, respondida_por = ?, respondida_em = ?
+                   WHERE id = ?""",
+                (resposta, sessao["usuario_id"], momento, observacao_id),
+            )
+            conn.execute(
+                """INSERT INTO evento_auditoria
+                   (ocorrido_em, ator_usuario_id, ator_dispositivo_id, acao, entidade, entidade_id, quadro_id, operacao_id, detalhe)
+                   VALUES (?, ?, NULL, 'duvida', 'observacao', ?, ?, NULL, 'resposta')""",
+                (momento, sessao["usuario_id"], observacao_id, obs["quadro_id"]),
+            )
+            conn.commit()
+        return JSONResponse({"id": observacao_id, "resposta": resposta, "respondida_em": momento})
+
+    @app.post("/api/pendencias/{pendencia_id}/resolucao")
+    def resolver_pendencia(pendencia_id: str, request: Request) -> JSONResponse:
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            if sessao["perfil"] not in ("engenharia", "supervisao"):
+                return erro(403, "perfil_insuficiente", "Quem resolve pendência é o painel.")
+            item = conn.execute("SELECT * FROM pendencia WHERE id = ?", (pendencia_id,)).fetchone()
+            if item is None:
+                return erro(404, "nao_encontrado", "Pendência não encontrada.")
+            if item["status"] == "resolvida":
+                return JSONResponse({"id": item["id"], "status": "resolvida", "resolvida_em": item["resolvida_em"]})
+            momento = agora()
+            conn.execute(
+                """UPDATE pendencia
+                   SET status = 'resolvida', resolvida_por = ?, resolvida_em = ?
+                   WHERE id = ?""",
+                (sessao["usuario_id"], momento, pendencia_id),
+            )
+            conn.execute(
+                """INSERT INTO evento_auditoria
+                   (ocorrido_em, ator_usuario_id, ator_dispositivo_id, acao, entidade, entidade_id, quadro_id, operacao_id, detalhe)
+                   VALUES (?, ?, NULL, 'mudanca_status', 'pendencia', ?, ?, NULL, 'resolvida')""",
+                (momento, sessao["usuario_id"], pendencia_id, item["quadro_id"]),
+            )
+            conn.commit()
+        return JSONResponse({"id": pendencia_id, "status": "resolvida", "resolvida_em": momento})
+
+    @app.get("/api/bancadas/andamento")
+    def andamento(request: Request) -> JSONResponse:
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            if sessao["perfil"] == "montagem":
+                return erro(403, "perfil_insuficiente", "Bancadas são do painel.")
+            bancadas = conn.execute(
+                "SELECT id, codigo, nome FROM bancada WHERE ativa = 1 ORDER BY codigo"
+            ).fetchall()
+            saida = []
+            acoes = (
+                "observacao",
+                "duvida",
+                "foto",
+                "pendencia",
+                "mudanca_etapa",
+                "mudanca_status",
+                "bloqueio",
+                "desbloqueio",
+            )
+            for bancada in bancadas:
+                quadros = conn.execute(
+                    """SELECT id, codigo, titulo FROM quadro
+                       WHERE bancada_id = ? AND status != 'cancelado' ORDER BY codigo""",
+                    (bancada["id"],),
+                ).fetchall()
+                itens = []
+                for quadro in quadros:
+                    etapas = [
+                        {"codigo": row["codigo"], "nome": row["nome"], "status": row["status"]}
+                        for row in conn.execute(
+                            """SELECT c.codigo, c.nome, e.status
+                               FROM etapa_producao e
+                               JOIN etapa_catalogo c ON c.id = e.etapa_catalogo_id
+                               WHERE e.quadro_id = ?
+                               ORDER BY c.ordem""",
+                            (quadro["id"],),
+                        ).fetchall()
+                    ]
+                    pendencias = [
+                        {
+                            "id": row["id"],
+                            "descricao": row["descricao"],
+                            "status": row["status"],
+                            "bloqueia_etapa": bool(row["bloqueia_etapa"]),
+                        }
+                        for row in conn.execute(
+                            """SELECT id, descricao, status, bloqueia_etapa FROM pendencia
+                               WHERE quadro_id = ? AND status IN ('aberta', 'em_analise')
+                               ORDER BY ocorrido_em""",
+                            (quadro["id"],),
+                        ).fetchall()
+                    ]
+                    eventos = [
+                        {"acao": row["acao"], "detalhe": row["detalhe"], "ocorrido_em": row["ocorrido_em"]}
+                        for row in conn.execute(
+                            f"""SELECT acao, detalhe, ocorrido_em FROM evento_auditoria
+                                WHERE quadro_id = ? AND acao IN ({",".join("?" for _ in acoes)})
+                                ORDER BY id""",
+                            (quadro["id"], *acoes),
+                        ).fetchall()
+                    ]
+                    itens.append(
+                        {
+                            "id": quadro["id"],
+                            "codigo": quadro["codigo"],
+                            "titulo": quadro["titulo"],
+                            "etapas": etapas,
+                            "pendencias": pendencias,
+                            "eventos": eventos,
+                        }
+                    )
+                saida.append(
+                    {
+                        "id": bancada["id"],
+                        "codigo": bancada["codigo"],
+                        "nome": bancada["nome"],
+                        "quadros": itens,
+                    }
+                )
+            conn.commit()
+        return JSONResponse(saida)
 
     @app.websocket("/api/ws")
     async def avisos(websocket: WebSocket) -> None:
