@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS revisao (
     arquivo_id TEXT REFERENCES arquivo(id),
     motivo TEXT,
     importada_em TEXT NOT NULL,
+    origem TEXT NOT NULL DEFAULT 'painel',
     decidida_por TEXT REFERENCES usuario(id),
     decidida_em TEXT,
     UNIQUE (quadro_id, codigo)
@@ -274,6 +275,22 @@ CREATE TABLE IF NOT EXISTS trava_publicacao (
 CREATE INDEX IF NOT EXISTS ix_quadro_op ON quadro(ordem_producao_id);
 CREATE INDEX IF NOT EXISTS ix_sessao_dispositivo
     ON sessao(dispositivo_id) WHERE revogada_em IS NULL;
+
+CREATE TABLE IF NOT EXISTS estado_pasta_rede (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    caminho TEXT NOT NULL,
+    acessivel INTEGER NOT NULL,
+    detalhe TEXT NOT NULL,
+    vista_em TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS arquivo_rede_tratado (
+    id TEXT PRIMARY KEY,
+    nome TEXT NOT NULL,
+    hash_sha256 TEXT NOT NULL,
+    tratado_em TEXT NOT NULL,
+    UNIQUE (nome, hash_sha256)
+);
 """
 
 TRIGGERS = """
@@ -357,6 +374,9 @@ def _garantir_colunas(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE observacao ADD COLUMN respondida_por TEXT")
     if "respondida_em" not in nomes:
         conn.execute("ALTER TABLE observacao ADD COLUMN respondida_em TEXT")
+    revisao = {row["name"] for row in conn.execute("PRAGMA table_info(revisao)")}
+    if "origem" not in revisao:
+        conn.execute("ALTER TABLE revisao ADD COLUMN origem TEXT NOT NULL DEFAULT 'painel'")
 
 
 def _seed(conn: sqlite3.Connection) -> None:

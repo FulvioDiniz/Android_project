@@ -27,6 +27,13 @@ type Revisao = {
   tipo: string | null;
   quadro_id: string;
   quadro_codigo: string;
+  origem?: string;
+};
+
+type PastaRede = {
+  acessivel: boolean;
+  mensagem: string;
+  caminho: string;
 };
 
 type Duvida = {
@@ -184,6 +191,7 @@ export function App() {
   const [aviso, setAviso] = useState("");
   const [quadros, setQuadros] = useState<Quadro[]>([]);
   const [revisoes, setRevisoes] = useState<Revisao[]>([]);
+  const [pastaRede, setPastaRede] = useState<PastaRede | null>(null);
   const [numero, setNumero] = useState("PED-DEL-01890-2026-16");
   const [cliente, setCliente] = useState("");
   const [codigo, setCodigo] = useState("PED-DEL-01890-2026-16");
@@ -227,6 +235,11 @@ export function App() {
       }),
     );
     setRevisoes(historicos.flat());
+    try {
+      setPastaRede(await api<PastaRede>("/api/pasta-rede", token));
+    } catch {
+      setPastaRede({ acessivel: false, mensagem: "Pasta de rede indisponível.", caminho: "" });
+    }
     try {
       setPendentes(await api("/api/revisoes?status=pendente", token));
       setAprovadas(await api("/api/revisoes?status=aprovada", token));
@@ -663,7 +676,9 @@ export function App() {
         {tela === "revisoes" ? (
           <>
             <h1>Revisões</h1>
-            <p>A fila inteira. Para aprovar ou publicar, abra o quadro.</p>
+            <p>A fila inteira. O envio do painel e a pasta de rede criam pendente. Nenhum dos dois publica.</p>
+            {pastaRede && !pastaRede.acessivel ? <p className="aviso">Pasta de rede indisponível.</p> : null}
+            {pastaRede?.acessivel ? <p className="ok">A pasta de rede está acessível.</p> : null}
             <div className="lista-cartoes">
               {revisoes.length === 0 ? <p>Nenhuma revisão.</p> : null}
               {revisoes.map((item) => (
@@ -674,6 +689,7 @@ export function App() {
                   <p>
                     {statusRevisao(item.status)} · {tipoRevisao(item.tipo)}
                   </p>
+                  <p>{item.origem === "rede" ? "Veio da rede" : "Veio do painel"}</p>
                   <button
                     type="button"
                     onClick={() => {

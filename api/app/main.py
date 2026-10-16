@@ -19,7 +19,8 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from app.backup import gerar_backup
 from app.db import agora, connect, hash_token, init_db
-from app.importacao import gravar_bytes, interpretar_nome, registrar_erro
+from app.importacao import importar_pdf
+from app.varredura import PASTA_PADRAO, ler_estado_pasta
 from app.liberacao import motivo_recusa_etapa, salto_de_relogio
 
 HASHER = PasswordHasher()
@@ -598,105 +599,10 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
                 return sessao
             if sessao["perfil"] != "engenharia":
                 return erro(403, "perfil_insuficiente", "Só engenharia envia projeto.")
-            partes = interpretar_nome(nome)
-            if partes is None:
-                erro_id = registrar_erro(
-                    conn,
-                    app.state.arquivos,
-                    nome or "sem-nome",
-                    conteudo,
-                    "convencao_invalida",
-                    "O nome precisa ser CODIGO-REV.X.pdf, com um único marcador.",
-                )
-                conn.commit()
-                return JSONResponse(
-                    {"erro_importacao_id": erro_id, "revisao_id": None, "status": "validacao_manual"},
-                    status_code=202,
-                )
-            codigo, revisao_codigo = partes
-            quadros = conn.execute(
-                "SELECT id, codigo, revisao_vigente_id FROM quadro WHERE lower(codigo) = lower(?)",
-                (codigo,),
-            ).fetchall()
-            if len(quadros) == 0:
-                erro_id = registrar_erro(conn, app.state.arquivos, nome, conteudo, "quadro_nao_encontrado", codigo)
-                conn.commit()
-                return JSONResponse(
-                    {"erro_importacao_id": erro_id, "revisao_id": None, "status": "validacao_manual"},
-                    status_code=202,
-                )
-            if len(quadros) > 1:
-                erro_id = registrar_erro(conn, app.state.arquivos, nome, conteudo, "nome_ambiguo", codigo)
-                conn.commit()
-                return JSONResponse(
-                    {"erro_importacao_id": erro_id, "revisao_id": None, "status": "validacao_manual"},
-                    status_code=202,
-                )
-            quadro = quadros[0]
-            arquivo_id, digest = gravar_bytes(app.state.arquivos, "projetos", conteudo)
-            existente = conn.execute(
-                """SELECT r.id, a.hash_sha256 FROM revisao r
-                   JOIN arquivo a ON a.id = r.arquivo_id
-                   WHERE r.quadro_id = ? AND r.codigo = ?""",
-                (quadro["id"], revisao_codigo),
-            ).fetchone()
-            if existente:
-                (app.state.arquivos / "projetos" / arquivo_id).unlink(missing_ok=True)
-                if existente["hash_sha256"] == digest:
-                    conn.commit()
-                    return JSONResponse(
-                        {"revisao_id": existente["id"], "status": "pendente", "repetido": True}
-                    )
-                erro_id = registrar_erro(
-                    conn,
-                    app.state.arquivos,
-                    nome,
-                    conteudo,
-                    "revisao_duplicada",
-                    revisao_codigo,
-                )
-                conn.commit()
-                return JSONResponse(
-                    {"erro_importacao_id": erro_id, "revisao_id": None, "status": "validacao_manual"},
-                    status_code=202,
-                )
-            conn.execute(
-                """INSERT INTO arquivo
-                   (id, hash_sha256, tamanho_bytes, mime, nome_original, area, criado_em)
-                   VALUES (?, ?, ?, 'application/pdf', ?, 'projetos', ?)""",
-                (arquivo_id, digest, len(conteudo), nome, agora()),
-            )
-            revisao_id = str(uuid.uuid4())
-            conn.execute(
-                """INSERT INTO revisao
-                   (id, quadro_id, codigo, status, tipo, arquivo_id, motivo, importada_em)
-                   VALUES (?, ?, ?, 'pendente', NULL, ?, NULL, ?)""",
-                (revisao_id, quadro["id"], revisao_codigo, arquivo_id, agora()),
-            )
-            auditar(
-                conn,
-                "importacao",
-                "revisao",
-                revisao_id,
-                sessao["usuario_id"],
-                None,
-                f"{nome} {digest}",
-            )
-            ponteiro = conn.execute(
-                "SELECT revisao_vigente_id FROM quadro WHERE id = ?",
-                (quadro["id"],),
-            ).fetchone()["revisao_vigente_id"]
+            resultado = importar_pdf(conn, app.state.arquivos, nome, conteudo, "painel", sessao["usuario_id"])
             conn.commit()
-        return JSONResponse(
-            {
-                "revisao_id": revisao_id,
-                "codigo": revisao_codigo,
-                "status": "pendente",
-                "revisao_vigente_id": ponteiro,
-                "hash_sha256": digest,
-            },
-            status_code=201,
-        )
+        status = resultado.pop("http")
+        return JSONResponse(resultado, status_code=status)
 
     @app.get("/api/revisoes")
     def listar_revisoes(request: Request, status: str = "pendente") -> JSONResponse:
@@ -707,7 +613,7 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
             if sessao["perfil"] == "montagem":
                 return erro(403, "perfil_insuficiente", "A fila de revisão é do painel.")
             rows = conn.execute(
-                """SELECT r.id, r.codigo, r.status, r.tipo, q.codigo AS quadro_codigo, q.revisao_vigente_id
+                """SELECT r.id, r.codigo, r.status, r.tipo, r.origem, q.codigo AS quadro_codigo, q.revisao_vigente_id
                    FROM revisao r JOIN quadro q ON q.id = r.quadro_id
                    WHERE r.status = ? ORDER BY r.importada_em""",
                 (status,),
@@ -730,6 +636,18 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
             ).fetchall()
             conn.commit()
         return JSONResponse([dict(row) for row in rows])
+
+    @app.get("/api/pasta-rede")
+    def estado_da_pasta(request: Request) -> JSONResponse:
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            if sessao["perfil"] == "montagem":
+                return erro(403, "perfil_insuficiente", "A pasta de rede é do painel.")
+            estado = ler_estado_pasta(conn)
+            conn.commit()
+        return JSONResponse(estado)
 
     @app.get("/api/bancadas")
     def listar_bancadas(request: Request) -> JSONResponse:
@@ -1289,7 +1207,7 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
             if isinstance(sessao, JSONResponse):
                 return sessao
             rows = conn.execute(
-                """SELECT id, codigo, status, tipo, arquivo_id, importada_em
+                """SELECT id, codigo, status, tipo, arquivo_id, importada_em, origem
                    FROM revisao WHERE quadro_id = ? ORDER BY importada_em""",
                 (quadro_id,),
             ).fetchall()
