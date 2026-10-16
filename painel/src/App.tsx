@@ -9,6 +9,7 @@ type Quadro = {
   cliente_nome: string;
   responsavel_nome: string | null;
   revisao_vigente_id: string | null;
+  revisao_vigente_codigo: string | null;
 };
 
 type Sessao = {
@@ -45,17 +46,22 @@ export function App() {
   const [titulo, setTitulo] = useState("");
   const [aviso, setAviso] = useState("");
   const [arquivo, setArquivo] = useState<File | null>(null);
-  const [pendentes, setPendentes] = useState<{ id: string; codigo: string; quadro_codigo: string; status: string }[]>([]);
+  const [pendentes, setPendentes] = useState<{ id: string; codigo: string; quadro_codigo: string; status: string; tipo: string | null }[]>([]);
+  const [aprovadas, setAprovadas] = useState<{ id: string; codigo: string; quadro_codigo: string }[]>([]);
+  const [tipo, setTipo] = useState("bloqueio");
+  const [motivo, setMotivo] = useState("");
   const [erros, setErros] = useState<{ id: string; nome_original: string; motivo: string }[]>([]);
 
   async function carregar(token: string) {
     setQuadros(await api<Quadro[]>("/api/quadros", token));
     try {
       setPendentes(await api("/api/revisoes?status=pendente", token));
+      setAprovadas(await api("/api/revisoes?status=aprovada", token));
       setErros(await api("/api/erros-importacao?status=aberto", token));
     } catch {
-      setPendentes([]);
-      setErros([]);
+        setPendentes([]);
+        setAprovadas([]);
+        setErros([]);
     }
   }
 
@@ -164,7 +170,7 @@ export function App() {
     <main>
       <h1>Quadros em cadastro</h1>
       <p>
-        {sessao.usuario.nome} · {sessao.perfil}. Ainda não há revisão vigente: o PDF entra na fase seguinte.
+        {sessao.usuario.nome} · {sessao.perfil}. A vigente só muda na publicação, não no envio do PDF.
       </p>
       <button className="secundario" type="button" onClick={sair}>
         Sair
@@ -188,7 +194,7 @@ export function App() {
               <td>{q.titulo}</td>
               <td>{q.ordem_numero}</td>
               <td>{q.cliente_nome}</td>
-              <td>{q.revisao_vigente_id ? "publicada" : "nenhuma"}</td>
+              <td>{q.revisao_vigente_codigo ? `Rev ${q.revisao_vigente_codigo}` : "nenhuma"}</td>
             </tr>
           ))}
         </tbody>
@@ -206,15 +212,64 @@ export function App() {
             />
           </label>
           <button type="submit">Enviar</button>
-          {pendentes.length > 0 ? (
-            <ul>
-              {pendentes.map((item) => (
-                <li key={item.id}>
-                  {item.quadro_codigo} Rev {item.codigo} · {item.status}
-                </li>
-              ))}
-            </ul>
-          ) : null}
+          {pendentes.map((item) => (
+            <div key={item.id}>
+              <p>
+                {item.quadro_codigo} Rev {item.codigo} · pendente
+              </p>
+              <label>
+                Tipo
+                <select value={tipo} onChange={(e) => setTipo(e.target.value)}>
+                  <option value="informativa">Informativa</option>
+                  <option value="reavaliacao">Reavaliação</option>
+                  <option value="bloqueio">Bloqueio</option>
+                </select>
+              </label>
+              <button
+                type="button"
+                onClick={() =>
+                  api(`/api/revisoes/${item.id}/aprovacao`, sessao.token, {
+                    method: "POST",
+                    body: JSON.stringify({ tipo }),
+                  }).then(() => carregar(sessao.token))
+                }
+              >
+                Aprovar
+              </button>
+              <input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo da rejeição" />
+              <button
+                type="button"
+                className="secundario"
+                onClick={() =>
+                  api(`/api/revisoes/${item.id}/rejeicao`, sessao.token, {
+                    method: "POST",
+                    body: JSON.stringify({ motivo }),
+                  }).then(() => carregar(sessao.token))
+                }
+              >
+                Rejeitar
+              </button>
+            </div>
+          ))}
+          {aprovadas.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={async () => {
+                const lista = await api<Quadro[]>("/api/quadros", sessao.token);
+                const alvo = lista.find((q) => q.codigo === item.quadro_codigo);
+                if (!alvo) return;
+                await api(`/api/quadros/${alvo.id}/publicacao`, sessao.token, {
+                  method: "POST",
+                  body: JSON.stringify({ revisao_id: item.id }),
+                });
+                setAviso(`Vigente passou a ser Rev ${item.codigo}.`);
+                await carregar(sessao.token);
+              }}
+            >
+              Publicar {item.quadro_codigo} Rev {item.codigo}
+            </button>
+          ))}
           {erros.length > 0 ? (
             <ul>
               {erros.map((item) => (

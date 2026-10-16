@@ -134,6 +134,27 @@ CREATE TABLE IF NOT EXISTS erro_importacao (
     resolvido_em TEXT
 );
 
+CREATE TABLE IF NOT EXISTS publicacao (
+    id TEXT PRIMARY KEY,
+    quadro_id TEXT NOT NULL,
+    revisao_id TEXT NOT NULL,
+    revisao_anterior_id TEXT,
+    publicada_por TEXT NOT NULL,
+    publicada_em TEXT NOT NULL,
+    motivo TEXT
+);
+
+CREATE TABLE IF NOT EXISTS notificacao (
+    id TEXT PRIMARY KEY,
+    quadro_id TEXT NOT NULL,
+    revisao_id TEXT NOT NULL,
+    tipo TEXT NOT NULL,
+    criada_em TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_revisao_publicada
+    ON revisao (quadro_id) WHERE status = 'publicada';
+
 CREATE TABLE IF NOT EXISTS trava_publicacao (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     quadro_id TEXT,
@@ -158,12 +179,32 @@ BEGIN
     SELECT RAISE(ABORT, 'auditoria imutavel');
 END;
 
-CREATE TRIGGER IF NOT EXISTS publicacao_ponteiro
+DROP TRIGGER IF EXISTS publicacao_ponteiro;
+CREATE TRIGGER publicacao_ponteiro
 BEFORE UPDATE OF revisao_vigente_id ON quadro
 WHEN NEW.revisao_vigente_id IS NOT OLD.revisao_vigente_id
 BEGIN
     SELECT RAISE(ABORT, 'publicacao sem trava')
     WHERE NOT EXISTS (SELECT 1 FROM trava_publicacao WHERE id = 1);
+    SELECT RAISE(ABORT, 'revisao nao publicada deste quadro')
+    WHERE NOT EXISTS (
+        SELECT 1 FROM revisao
+        WHERE id = NEW.revisao_vigente_id
+          AND quadro_id = NEW.id
+          AND status = 'publicada'
+    );
+END;
+
+CREATE TRIGGER IF NOT EXISTS publicacao_sem_update
+BEFORE UPDATE ON publicacao
+BEGIN
+    SELECT RAISE(ABORT, 'publicacao imutavel');
+END;
+
+CREATE TRIGGER IF NOT EXISTS publicacao_sem_delete
+BEFORE DELETE ON publicacao
+BEGIN
+    SELECT RAISE(ABORT, 'publicacao imutavel');
 END;
 """
 
@@ -174,7 +215,7 @@ def agora() -> str:
 
 def connect(path: str) -> sqlite3.Connection:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
+    conn = sqlite3.connect(path, isolation_level=None, timeout=5)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")

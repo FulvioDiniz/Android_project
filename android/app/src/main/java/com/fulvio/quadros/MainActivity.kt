@@ -114,6 +114,10 @@ private fun Tela(dao: QuadroDao) {
             items(quadros) { quadro ->
                 Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
                     Text("${quadro.codigo}", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        if (quadro.vigenteCodigo.isBlank()) "Sem vigente" else "Vigente Rev ${quadro.vigenteCodigo}",
+                        fontWeight = FontWeight.SemiBold,
+                    )
                     Text(quadro.titulo)
                     Text("${quadro.clienteNome} · ${quadro.ordemNumero}")
                 }

@@ -25,6 +25,7 @@ data class QuadroLocal(
     val ordemNumero: String,
     val clienteNome: String,
     val responsavelNome: String,
+    val vigenteCodigo: String,
 )
 
 @Entity(tableName = "meta")
@@ -51,7 +52,7 @@ interface QuadroDao {
     fun gravar(meta: Meta)
 }
 
-@Database(entities = [QuadroLocal::class, Meta::class], version = 1)
+@Database(entities = [QuadroLocal::class, Meta::class], version = 2)
 abstract class BancoLocal : RoomDatabase() {
     abstract fun dao(): QuadroDao
 }
@@ -59,6 +60,7 @@ abstract class BancoLocal : RoomDatabase() {
 fun banco(context: Context): BancoLocal =
     Room.databaseBuilder(context, BancoLocal::class.java, "quadros.db")
         .allowMainThreadQueries()
+        .fallbackToDestructiveMigration()
         .build()
 
 data class SessaoRemota(val token: String, val nome: String, val perfil: String)
@@ -87,6 +89,7 @@ fun baixarQuadros(base: String, token: String): List<QuadroLocal> {
             ordemNumero = item.getString("ordem_numero"),
             clienteNome = item.getString("cliente_nome"),
             responsavelNome = item.optString("responsavel_nome"),
+            vigenteCodigo = item.optString("revisao_vigente_codigo"),
         )
     }
 }

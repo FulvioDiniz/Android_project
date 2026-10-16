@@ -189,11 +189,13 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
             termo = f"%{q.strip().lower()}%"
             rows = conn.execute(
                 """SELECT q.id, q.codigo, q.titulo, q.status, q.revisao_vigente_id,
+                          rv.codigo AS revisao_vigente_codigo,
                           op.numero AS ordem_numero, c.nome AS cliente_nome,
                           u.nome AS responsavel_nome, b.nome AS bancada_nome
                    FROM quadro q
                    JOIN ordem_producao op ON op.id = q.ordem_producao_id
                    JOIN cliente c ON c.id = op.cliente_id
+                   LEFT JOIN revisao rv ON rv.id = q.revisao_vigente_id
                    LEFT JOIN usuario u ON u.id = q.responsavel_id
                    LEFT JOIN bancada b ON b.id = q.bancada_id
                    WHERE q.status != 'cancelado'
@@ -213,11 +215,13 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
                 return sessao
             row = conn.execute(
                 """SELECT q.id, q.codigo, q.titulo, q.status, q.revisao_vigente_id,
+                          rv.codigo AS revisao_vigente_codigo,
                           op.id AS ordem_producao_id, op.numero AS ordem_numero,
                           c.nome AS cliente_nome
                    FROM quadro q
                    JOIN ordem_producao op ON op.id = q.ordem_producao_id
                    JOIN cliente c ON c.id = op.cliente_id
+                   LEFT JOIN revisao rv ON rv.id = q.revisao_vigente_id
                    WHERE q.id = ?""",
                 (quadro_id,),
             ).fetchone()
@@ -421,7 +425,7 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
             if sessao["perfil"] == "montagem":
                 return erro(403, "perfil_insuficiente", "A fila de revisão é do painel.")
             rows = conn.execute(
-                """SELECT r.id, r.codigo, r.status, q.codigo AS quadro_codigo, q.revisao_vigente_id
+                """SELECT r.id, r.codigo, r.status, r.tipo, q.codigo AS quadro_codigo, q.revisao_vigente_id
                    FROM revisao r JOIN quadro q ON q.id = r.quadro_id
                    WHERE r.status = ? ORDER BY r.importada_em""",
                 (status,),
@@ -458,6 +462,183 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
             ).fetchall()
             conn.commit()
         return JSONResponse([dict(row) for row in rows])
+
+    def somente_engenharia(sessao: sqlite3.Row) -> JSONResponse | None:
+        if sessao["perfil"] != "engenharia":
+            return erro(403, "perfil_insuficiente", "Só engenharia decide revisão.")
+        return None
+
+    @app.post("/api/revisoes/{revisao_id}/aprovacao")
+    def aprovar(revisao_id: str, corpo: dict[str, Any], request: Request) -> JSONResponse:
+        tipo = str(corpo.get("tipo") or "")
+        if tipo not in ("informativa", "reavaliacao", "bloqueio"):
+            return erro(422, "pedido_invalido", "Tipo inválido.")
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            recusa = somente_engenharia(sessao)
+            if recusa:
+                return recusa
+            rev = conn.execute("SELECT * FROM revisao WHERE id = ?", (revisao_id,)).fetchone()
+            if rev is None:
+                return erro(404, "nao_encontrado", "Revisão não encontrada.")
+            if rev["status"] != "pendente":
+                return erro(409, "revisao_nao_aprovada", "Só revisão pendente pode ser aprovada.")
+            ponteiro_antes = conn.execute(
+                "SELECT revisao_vigente_id FROM quadro WHERE id = ?",
+                (rev["quadro_id"],),
+            ).fetchone()["revisao_vigente_id"]
+            conn.execute(
+                """UPDATE revisao SET status = 'aprovada', tipo = ?, decidida_por = ?, decidida_em = ?
+                   WHERE id = ?""",
+                (tipo, sessao["usuario_id"], agora(), revisao_id),
+            )
+            conn.execute(
+                """INSERT INTO evento_auditoria
+                   (ocorrido_em, ator_usuario_id, ator_dispositivo_id, acao, entidade, entidade_id, quadro_id, operacao_id, detalhe)
+                   VALUES (?, ?, NULL, 'aprovacao', 'revisao', ?, ?, NULL, ?)""",
+                (agora(), sessao["usuario_id"], revisao_id, rev["quadro_id"], tipo),
+            )
+            ponteiro = conn.execute(
+                "SELECT revisao_vigente_id FROM quadro WHERE id = ?",
+                (rev["quadro_id"],),
+            ).fetchone()["revisao_vigente_id"]
+            conn.commit()
+        return JSONResponse({"id": revisao_id, "status": "aprovada", "tipo": tipo, "revisao_vigente_id": ponteiro, "ponteiro_antes": ponteiro_antes})
+
+    @app.post("/api/revisoes/{revisao_id}/rejeicao")
+    def rejeitar(revisao_id: str, corpo: dict[str, Any], request: Request) -> JSONResponse:
+        motivo = str(corpo.get("motivo") or "").strip()
+        if not motivo:
+            return erro(409, "motivo_obrigatorio", "Rejeitar exige motivo.")
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            recusa = somente_engenharia(sessao)
+            if recusa:
+                return recusa
+            rev = conn.execute("SELECT * FROM revisao WHERE id = ?", (revisao_id,)).fetchone()
+            if rev is None:
+                return erro(404, "nao_encontrado", "Revisão não encontrada.")
+            if rev["status"] != "pendente":
+                return erro(409, "revisao_nao_aprovada", "Só revisão pendente pode ser rejeitada.")
+            ponteiro_antes = conn.execute(
+                "SELECT revisao_vigente_id FROM quadro WHERE id = ?",
+                (rev["quadro_id"],),
+            ).fetchone()["revisao_vigente_id"]
+            conn.execute(
+                """UPDATE revisao SET status = 'rejeitada', motivo = ?, decidida_por = ?, decidida_em = ?
+                   WHERE id = ?""",
+                (motivo, sessao["usuario_id"], agora(), revisao_id),
+            )
+            conn.execute(
+                """INSERT INTO evento_auditoria
+                   (ocorrido_em, ator_usuario_id, ator_dispositivo_id, acao, entidade, entidade_id, quadro_id, operacao_id, detalhe)
+                   VALUES (?, ?, NULL, 'rejeicao', 'revisao', ?, ?, NULL, ?)""",
+                (agora(), sessao["usuario_id"], revisao_id, rev["quadro_id"], motivo),
+            )
+            ponteiro = conn.execute(
+                "SELECT revisao_vigente_id FROM quadro WHERE id = ?",
+                (rev["quadro_id"],),
+            ).fetchone()["revisao_vigente_id"]
+            conn.commit()
+        if ponteiro != ponteiro_antes:
+            return erro(503, "banco_indisponivel", "O ponteiro mudou na rejeição.")
+        return JSONResponse({"id": revisao_id, "status": "rejeitada", "revisao_vigente_id": ponteiro})
+
+    @app.post("/api/quadros/{quadro_id}/publicacao")
+    def publicar(quadro_id: str, corpo: dict[str, Any], request: Request) -> JSONResponse:
+        revisao_id = str(corpo.get("revisao_id") or "").strip()
+        if not revisao_id:
+            return erro(422, "pedido_invalido", "Informe a revisão.")
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            recusa = somente_engenharia(sessao)
+            if recusa:
+                return recusa
+            visto = conn.execute(
+                "SELECT revisao_vigente_id FROM quadro WHERE id = ?",
+                (quadro_id,),
+            ).fetchone()
+            if visto is None:
+                return erro(404, "nao_encontrado", "Quadro não encontrado.")
+            ponteiro_visto = visto["revisao_vigente_id"]
+            gancho = getattr(app.state, "antes_da_trava", None)
+            if gancho:
+                gancho()
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                quadro = conn.execute(
+                    "SELECT id, revisao_vigente_id FROM quadro WHERE id = ?",
+                    (quadro_id,),
+                ).fetchone()
+                rev = conn.execute("SELECT * FROM revisao WHERE id = ?", (revisao_id,)).fetchone()
+                if rev is None or rev["quadro_id"] != quadro_id:
+                    conn.rollback()
+                    return erro(404, "nao_encontrado", "Revisão não encontrada neste quadro.")
+                if rev["status"] == "publicada" and quadro["revisao_vigente_id"] == revisao_id:
+                    ja = conn.execute(
+                        "SELECT * FROM publicacao WHERE revisao_id = ? ORDER BY publicada_em DESC LIMIT 1",
+                        (revisao_id,),
+                    ).fetchone()
+                    conn.commit()
+                    return JSONResponse(dict(ja) if ja else {"revisao_id": revisao_id, "status": "publicada"})
+                if quadro["revisao_vigente_id"] != ponteiro_visto:
+                    conn.rollback()
+                    return erro(409, "revisao_nao_aprovada", "Outra publicação já entrou. Esta revisão continua como estava.")
+                if rev["status"] != "aprovada" or not rev["tipo"]:
+                    conn.rollback()
+                    return erro(409, "revisao_nao_aprovada", "Só revisão aprovada com tipo pode ser publicada.")
+                anterior = quadro["revisao_vigente_id"]
+                momento = agora()
+                conn.execute(
+                    "INSERT INTO trava_publicacao (id, quadro_id, aberta_em) VALUES (1, ?, ?)",
+                    (quadro_id, momento),
+                )
+                if anterior:
+                    conn.execute(
+                        "UPDATE revisao SET status = 'substituida' WHERE id = ? AND status = 'publicada'",
+                        (anterior,),
+                    )
+                conn.execute(
+                    "UPDATE revisao SET status = 'publicada' WHERE id = ?",
+                    (revisao_id,),
+                )
+                conn.execute(
+                    "UPDATE quadro SET revisao_vigente_id = ?, atualizado_em = ? WHERE id = ?",
+                    (revisao_id, momento, quadro_id),
+                )
+                publicacao_id = str(uuid.uuid4())
+                conn.execute(
+                    """INSERT INTO publicacao
+                       (id, quadro_id, revisao_id, revisao_anterior_id, publicada_por, publicada_em, motivo)
+                       VALUES (?, ?, ?, ?, ?, ?, NULL)""",
+                    (publicacao_id, quadro_id, revisao_id, anterior, sessao["usuario_id"], momento),
+                )
+                conn.execute(
+                    """INSERT INTO evento_auditoria
+                       (ocorrido_em, ator_usuario_id, ator_dispositivo_id, acao, entidade, entidade_id, quadro_id, operacao_id, detalhe)
+                       VALUES (?, ?, NULL, 'publicacao', 'publicacao', ?, ?, NULL, ?)""",
+                    (momento, sessao["usuario_id"], publicacao_id, quadro_id, revisao_id),
+                )
+                conn.execute(
+                    """INSERT INTO notificacao (id, quadro_id, revisao_id, tipo, criada_em)
+                       VALUES (?, ?, ?, 'revisao_publicada', ?)""",
+                    (str(uuid.uuid4()), quadro_id, revisao_id, momento),
+                )
+                conn.execute("DELETE FROM trava_publicacao WHERE id = 1")
+                conn.commit()
+            except sqlite3.Error:
+                conn.rollback()
+                return erro(409, "revisao_nao_aprovada", "A publicação não fechou.")
+        return JSONResponse(
+            {"id": publicacao_id, "revisao_id": revisao_id, "revisao_anterior_id": anterior, "status": "publicada"},
+            status_code=201,
+        )
 
     return app
 
