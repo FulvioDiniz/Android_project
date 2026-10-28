@@ -11,8 +11,6 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
-import androidx.compose.foundation.gestures.drag
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -54,7 +52,6 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -382,48 +379,36 @@ private fun AreaPdf(
                             awaitEachGesture {
                                 val down = awaitFirstDown(requireUnconsumed = false)
                                 val modoAgora = modoAtual.value
-                                if (modoAgora == ModoDesenho.Ver) {
-                                    var evento = awaitPointerEvent()
-                                    while (evento.changes.any { it.pressed }) {
+                                val buffer = mutableListOf(normalizar(down.position.x, down.position.y))
+                                if (modoAgora == ModoDesenho.Lapis) vivo = buffer.toList()
+                                var doisDedos = false
+                                var moveu = false
+                                while (true) {
+                                    val evento = awaitPointerEvent()
+                                    val pressionados = evento.changes.filter { it.pressed }
+                                    if (pressionados.size >= 2) {
+                                        doisDedos = true
                                         zoomAtual.value(evento.calculateZoom(), evento.calculatePan())
-                                        evento.changes.forEach { it.consume() }
-                                        evento = awaitPointerEvent()
-                                    }
-                                } else {
-                                    val segundo = withTimeoutOrNull(80) {
-                                        var evento = awaitPointerEvent()
-                                        while (evento.changes.count { it.pressed } < 2) {
-                                            if (evento.changes.none { it.pressed }) return@withTimeoutOrNull null
-                                            evento = awaitPointerEvent()
-                                        }
-                                        evento
-                                    }
-                                    if (segundo != null) {
-                                        zoomAtual.value(segundo.calculateZoom(), segundo.calculatePan())
-                                        var evento = awaitPointerEvent()
-                                        while (evento.changes.any { it.pressed }) {
-                                            zoomAtual.value(evento.calculateZoom(), evento.calculatePan())
-                                            evento.changes.forEach { it.consume() }
-                                            evento = awaitPointerEvent()
-                                        }
-                                    } else if (modoAgora == ModoDesenho.Lapis) {
-                                        val buffer = mutableListOf(normalizar(down.position.x, down.position.y))
-                                        vivo = buffer.toList()
-                                        drag(down.id) { change ->
-                                            buffer.add(normalizar(change.position.x, change.position.y))
+                                    } else if (pressionados.size == 1 && modoAgora == ModoDesenho.Lapis && !doisDedos) {
+                                        val ponto = normalizar(pressionados[0].position.x, pressionados[0].position.y)
+                                        if (ponto != buffer.last()) {
+                                            buffer.add(ponto)
                                             vivo = buffer.toList()
-                                            change.consume()
+                                            moveu = true
                                         }
-                                        val copia = buffer.toList()
-                                        vivo = emptyList()
-                                        if (copia.size >= 2) commitAtual.value(copia)
-                                    } else {
-                                        val up = waitForUpOrCancellation()
-                                        if (up != null) {
-                                            val ponto = normalizar(up.position.x, up.position.y)
-                                            toqueAtual.value(ponto.x, ponto.y)
-                                        }
+                                    } else if (pressionados.size == 1 && modoAgora == ModoDesenho.Ver) {
+                                        zoomAtual.value(evento.calculateZoom(), evento.calculatePan())
+                                        moveu = true
                                     }
+                                    evento.changes.forEach { it.consume() }
+                                    if (pressionados.isEmpty()) break
+                                }
+                                vivo = emptyList()
+                                if (modoAgora == ModoDesenho.Lapis && !doisDedos && buffer.size >= 2) {
+                                    commitAtual.value(buffer.toList())
+                                } else if (modoAgora != ModoDesenho.Ver && modoAgora != ModoDesenho.Lapis && !doisDedos && !moveu) {
+                                    val ponto = buffer.first()
+                                    toqueAtual.value(ponto.x, ponto.y)
                                 }
                             }
                         },
