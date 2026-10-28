@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { VisorPdf, comentarioMarca, lerMarca, tipoMarca, type MarcaPdf } from "./VisorPdf";
+import { VisorPdf, apontamentoNoPdf, comentarioMarca, lerMarca, tipoMarca } from "./VisorPdf";
 
 type Tela = "quadros" | "quadro" | "revisoes" | "duvidas" | "bancadas" | "auditoria" | "pessoas";
 
@@ -765,10 +765,11 @@ export function App() {
                   <VisorPdf
                     url={pdfUrl}
                     folha={folhaFoco}
-                    marcas={duvidas
+                    selecionadoId={erroFoco}
+                    itens={duvidas
                       .filter((item) => item.quadro_id === quadro.id)
-                      .map((item) => lerMarca(item.texto).marca)
-                      .filter((item): item is MarcaPdf => item !== null)}
+                      .map(apontamentoNoPdf)
+                      .filter((item): item is NonNullable<typeof item> => item !== null)}
                   />
                 ) : (
                   <div className="vazio-estado">
@@ -1111,10 +1112,11 @@ export function App() {
                     <VisorPdf
                       url={pdfUrl}
                       folha={folhaFoco}
-                      marcas={duvidas
+                      selecionadoId={erroFoco}
+                      itens={duvidas
                         .filter((item) => item.quadro_id === quadroId)
-                        .map((item) => lerMarca(item.texto).marca)
-                        .filter((item): item is MarcaPdf => item !== null)}
+                        .map(apontamentoNoPdf)
+                        .filter((item): item is NonNullable<typeof item> => item !== null)}
                     />
                   ) : (
                     <div className="vazio-estado">
