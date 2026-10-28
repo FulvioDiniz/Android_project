@@ -398,6 +398,9 @@ def _garantir_colunas(conn: sqlite3.Connection) -> None:
     comparacao = {row["name"] for row in conn.execute("PRAGMA table_info(comparacao_rede)")}
     if comparacao and "grupo" not in comparacao:
         conn.execute("ALTER TABLE comparacao_rede ADD COLUMN grupo TEXT NOT NULL DEFAULT ''")
+    quadro = {row["name"] for row in conn.execute("PRAGMA table_info(quadro)")}
+    if quadro and "caminho_projeto" not in quadro:
+        conn.execute("ALTER TABLE quadro ADD COLUMN caminho_projeto TEXT")
 
 
 def _seed(conn: sqlite3.Connection) -> None:

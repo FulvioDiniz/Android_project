@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 
 type Tela = "quadros" | "quadro" | "revisoes" | "duvidas" | "bancadas" | "auditoria" | "pessoas";
 
@@ -202,11 +202,14 @@ export function App() {
   const [quadros, setQuadros] = useState<Quadro[]>([]);
   const [revisoes, setRevisoes] = useState<Revisao[]>([]);
   const [pastaRede, setPastaRede] = useState<PastaRede | null>(null);
-  const [numero, setNumero] = useState("PED-DEL-01890-2026-16");
-  const [cliente, setCliente] = useState("");
-  const [codigo, setCodigo] = useState("PED-DEL-01890-2026-16");
-  const [titulo, setTitulo] = useState("");
+  const [nomeProjeto, setNomeProjeto] = useState("");
+  const [caminhoNovo, setCaminhoNovo] = useState("");
+  const [buscaQuadros, setBuscaQuadros] = useState("");
   const [arquivo, setArquivo] = useState<File | null>(null);
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [arquivoPdfId, setArquivoPdfId] = useState<string | null>(null);
+  const [caminhoProjeto, setCaminhoProjeto] = useState("");
+  const marcaPdf = useRef("");
   const [pendentes, setPendentes] = useState<{ id: string; codigo: string; quadro_codigo: string }[]>([]);
   const [aprovadas, setAprovadas] = useState<{ id: string; codigo: string; quadro_codigo: string }[]>([]);
   const [tipos, setTipos] = useState<Record<string, string>>({});
@@ -295,6 +298,55 @@ export function App() {
       .catch((falha: Error) => setErro(falha.message));
   }, [sessao, quadroId, quadros]);
 
+  useEffect(() => {
+    if (!sessao || !quadroId || tela !== "quadro") return;
+    let ativo = true;
+    async function sincronizarPdf() {
+      if (!sessao || !quadroId) return;
+      try {
+        const historia = await api<{
+          caminho_projeto?: string;
+          revisoes: { id: string; arquivo_id: string | null; importada_em: string }[];
+        }>(`/api/quadros/${quadroId}/revisoes`, sessao.token);
+        if (!ativo) return;
+        setCaminhoProjeto(historia.caminho_projeto || "");
+        const ultima = [...historia.revisoes].reverse().find((item) => item.arquivo_id);
+        const arquivoId = ultima?.arquivo_id || null;
+        const marca = ultima ? `${ultima.arquivo_id}:${ultima.importada_em}` : "";
+        setArquivoPdfId(arquivoId);
+        if (!arquivoId) {
+          marcaPdf.current = "";
+          setPdfUrl((anterior) => {
+            if (anterior) URL.revokeObjectURL(anterior);
+            return null;
+          });
+          return;
+        }
+        if (marca === marcaPdf.current) return;
+        marcaPdf.current = marca;
+        const resposta = await fetch(`/api/arquivos/${arquivoId}`, {
+          headers: { Authorization: `Bearer ${sessao.token}` },
+        });
+        if (!ativo || !resposta.ok) return;
+        const bruto = await resposta.blob();
+        const pdf = bruto.type === "application/pdf" ? bruto : new Blob([bruto], { type: "application/pdf" });
+        const url = URL.createObjectURL(pdf);
+        setPdfUrl((anterior) => {
+          if (anterior) URL.revokeObjectURL(anterior);
+          return url;
+        });
+      } catch {
+        /* mantém o PDF já aberto */
+      }
+    }
+    sincronizarPdf();
+    const timer = window.setInterval(sincronizarPdf, 5000);
+    return () => {
+      ativo = false;
+      window.clearInterval(timer);
+    };
+  }, [sessao, quadroId, tela]);
+
   async function entrar(evento: FormEvent) {
     evento.preventDefault();
     setErro("");
@@ -349,37 +401,72 @@ export function App() {
   async function cadastrar(evento: FormEvent) {
     evento.preventDefault();
     if (!sessao) return;
+    const nome = nomeProjeto.trim();
+    const caminho = caminhoNovo.trim();
+    if (!nome || !caminho) {
+      setErro("Informe o nome e o caminho da pasta.");
+      return;
+    }
     setAviso("");
     setErro("");
     try {
       const ordem = await api<{ id: string }>("/api/ordens-producao", sessao.token, {
         method: "POST",
-        body: JSON.stringify({ numero, cliente_nome: cliente }),
+        body: JSON.stringify({ numero: nome, cliente_nome: "Projetos" }),
       });
-      await api("/api/quadros", sessao.token, {
+      const quadroNovo = await api<{ id: string; codigo: string }>("/api/quadros", sessao.token, {
         method: "POST",
-        body: JSON.stringify({ codigo, titulo, ordem_producao_id: ordem.id }),
+        body: JSON.stringify({ codigo: nome, titulo: nome, ordem_producao_id: ordem.id }),
       });
-      setAviso(`Quadro ${codigo} gravado.`);
+      await api(`/api/quadros/${quadroNovo.id}/caminho`, sessao.token, {
+        method: "POST",
+        body: JSON.stringify({ caminho }),
+      });
+      setNomeProjeto("");
+      setCaminhoNovo("");
+      setAviso(`Projeto ${nome} criado. O PDF da pasta entra sozinho, sem publicar.`);
       await carregar(sessao.token);
+      setQuadroId(quadroNovo.id);
+      setTela("quadro");
     } catch (falha) {
       setErro(falha instanceof Error ? falha.message : "Falha ao cadastrar");
     }
   }
 
+  async function salvarCaminho(evento: FormEvent) {
+    evento.preventDefault();
+    if (!sessao || !quadroId) return;
+    setAviso("");
+    setErro("");
+    try {
+      await api(`/api/quadros/${quadroId}/caminho`, sessao.token, {
+        method: "POST",
+        body: JSON.stringify({ caminho: caminhoProjeto.trim() }),
+      });
+      setAviso("Caminho guardado. Um PDF novo na pasta substitui o da tela.");
+    } catch (falha) {
+      setErro(falha instanceof Error ? falha.message : "Não guardou o caminho");
+    }
+  }
+
   if (!sessao) {
     return (
-      <main>
+      <main className="login-tela">
         <h1>Quadros</h1>
-        <p>Painel da engenharia. Montagem entra no tablet.</p>
+        <p className="intro">Painel da engenharia. Montagem entra no tablet.</p>
         <form onSubmit={entrar}>
           <label>
             Login
-            <input value={login} onChange={(e) => setLogin(e.target.value)} />
+            <input value={login} onChange={(e) => setLogin(e.target.value)} autoComplete="username" />
           </label>
           <label>
             Senha
-            <input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} />
+            <input
+              type="password"
+              value={senha}
+              onChange={(e) => setSenha(e.target.value)}
+              autoComplete="current-password"
+            />
           </label>
           {erro ? <p className="aviso">{erro}</p> : null}
           <button type="submit">Entrar</button>
@@ -391,10 +478,20 @@ export function App() {
   const engenharia = sessao.perfil === "engenharia";
   const podeResolver = engenharia || sessao.perfil === "supervisao";
   const quadro = quadros.find((item) => item.id === quadroId) ?? null;
+  const termoBusca = buscaQuadros.trim().toLowerCase();
+  const quadrosVisiveis = termoBusca
+    ? quadros.filter(
+        (item) =>
+          item.codigo.toLowerCase().includes(termoBusca) ||
+          item.cliente_nome.toLowerCase().includes(termoBusca) ||
+          item.ordem_numero.toLowerCase().includes(termoBusca) ||
+          (item.titulo || "").toLowerCase().includes(termoBusca),
+      )
+    : quadros;
   const pendentesDoQuadro = pendentes.filter((item) => item.quadro_codigo === quadro?.codigo);
   const aprovadasDoQuadro = aprovadas.filter((item) => item.quadro_codigo === quadro?.codigo);
   const menus: { id: Tela; rotulo: string }[] = [
-    { id: "quadros", rotulo: "Quadros" },
+    { id: "quadros", rotulo: "Projetos" },
     { id: "revisoes", rotulo: "Revisões" },
     { id: "duvidas", rotulo: "Dúvidas" },
     { id: "bancadas", rotulo: "Bancadas" },
@@ -437,83 +534,154 @@ export function App() {
 
         {tela === "quadros" ? (
           <>
-            <h1>Quadros</h1>
-            <p className="intro">A revisão no selo é a vigente. Abrir o quadro não publica.</p>
-            <div className="lista-quadros">
-              {quadros.length === 0 ? <p className="vazio">Nenhum quadro nesta lista.</p> : null}
-              {quadros.map((item) => (
-                <article key={item.id} className="linha-quadro">
-                  <div>
-                    <span className="codigo">{item.codigo}</span>
-                    <span className="linha-sec">
-                      {item.cliente_nome} · OP {item.ordem_numero}
-                    </span>
-                  </div>
-                  <span className={item.revisao_vigente_codigo ? "selo" : "selo selo-vazio"}>
-                    {item.revisao_vigente_codigo ? `Rev ${item.revisao_vigente_codigo}` : "Sem vigente"}
-                  </span>
-                  <button
-                    type="button"
-                    className="secundario"
-                    onClick={() => {
-                      setQuadroId(item.id);
-                      setMotivoCancelamento("");
-                      setTela("quadro");
-                    }}
-                  >
-                    Abrir
-                  </button>
-                </article>
-              ))}
-            </div>
+            <header className="page-head">
+              <div>
+                <h1>Projetos</h1>
+                <p className="intro">Nome + caminho. O PDF salvo na pasta entra sozinho, sem publicar.</p>
+              </div>
+              <span className="contador">{quadros.length} na lista</span>
+            </header>
+
             {engenharia ? (
-              <form className="bloco" onSubmit={cadastrar}>
-                <h2>Novo quadro</h2>
-                <label>
-                  Número da ordem
-                  <input value={numero} onChange={(e) => setNumero(e.target.value)} />
-                </label>
-                <label>
-                  Cliente
-                  <input value={cliente} onChange={(e) => setCliente(e.target.value)} />
-                </label>
-                <label>
-                  Código do quadro
-                  <input value={codigo} onChange={(e) => setCodigo(e.target.value)} />
-                </label>
-                <label>
-                  Título
-                  <input value={titulo} onChange={(e) => setTitulo(e.target.value)} />
-                </label>
-                <button type="submit">Cadastrar quadro</button>
+              <form className="bloco destaque-criar" onSubmit={cadastrar}>
+                <h2>Novo projeto</h2>
+                <p className="miudo">Use o caminho que o supervisor indicar. Não precisa cadastrar OP à mão.</p>
+                <div className="cadastro-linha">
+                  <label>
+                    Nome
+                    <input
+                      value={nomeProjeto}
+                      onChange={(e) => setNomeProjeto(e.target.value)}
+                      placeholder="Ex.: QD-01 Oficina"
+                      required
+                    />
+                  </label>
+                  <label>
+                    Caminho da pasta
+                    <input
+                      value={caminhoNovo}
+                      onChange={(e) => setCaminhoNovo(e.target.value)}
+                      placeholder="\\Srv3302\projetos elétricos\...\PDF"
+                      required
+                    />
+                  </label>
+                  <button type="submit">Criar projeto</button>
+                </div>
               </form>
             ) : null}
+
+            {quadros.length === 0 ? (
+              <div className="vazio-estado">
+                <h2>Nenhum projeto ainda</h2>
+                <p>Crie o primeiro com o nome e o caminho da pasta do desenho.</p>
+              </div>
+            ) : (
+              <>
+                <label className="busca">
+                  Buscar
+                  <input
+                    value={buscaQuadros}
+                    onChange={(e) => setBuscaQuadros(e.target.value)}
+                    placeholder="Código, cliente ou OP"
+                  />
+                </label>
+                <div className="lista-quadros">
+                  {quadrosVisiveis.length === 0 ? (
+                    <p className="vazio">Nada encontrado para “{buscaQuadros}”.</p>
+                  ) : null}
+                  {quadrosVisiveis.map((item) => {
+                    const temPendente = revisoes.some(
+                      (rev) => rev.quadro_id === item.id && rev.status === "pendente",
+                    );
+                    const seloTexto = item.revisao_vigente_codigo
+                      ? `Rev ${item.revisao_vigente_codigo}`
+                      : temPendente
+                        ? "Pendente"
+                        : "Sem PDF";
+                    return (
+                      <article key={item.id} className="linha-quadro">
+                        <div>
+                          <span className="codigo">{item.codigo}</span>
+                          <span className="linha-sec">
+                            {item.cliente_nome} · OP {item.ordem_numero}
+                          </span>
+                        </div>
+                        <span className={seloTexto === "Sem PDF" ? "selo selo-vazio" : "selo"}>
+                          {seloTexto}
+                        </span>
+                        <button
+                          type="button"
+                          className="secundario"
+                          onClick={() => {
+                            setQuadroId(item.id);
+                            setMotivoCancelamento("");
+                            setTela("quadro");
+                          }}
+                        >
+                          Abrir
+                        </button>
+                      </article>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </>
         ) : null}
 
         {tela === "quadro" && quadro ? (
           <>
-            <button type="button" className="secundario" onClick={() => ir("quadros")}>
-              Voltar à lista
+            <button type="button" className="voltar" onClick={() => ir("quadros")}>
+              ← Projetos
             </button>
-            <p className="codigo">{quadro.codigo}</p>
-            <p className="miudo">
-              {quadro.titulo} · {quadro.cliente_nome} · {quadro.ordem_numero}
-            </p>
-            <section className="bloco vigente-bloco">
-              <h2>Vigente</h2>
-              <p className={quadro.revisao_vigente_codigo ? "selo" : "selo selo-vazio"}>
+            <header className="page-head">
+              <div>
+                <p className="codigo">{quadro.codigo}</p>
+                <p className="miudo">
+                  {quadro.titulo && quadro.titulo !== quadro.codigo ? `${quadro.titulo} · ` : ""}
+                  {quadro.cliente_nome} · OP {quadro.ordem_numero}
+                </p>
+              </div>
+              <span className={quadro.revisao_vigente_codigo ? "selo" : "selo selo-vazio"}>
                 {quadro.revisao_vigente_codigo ? `Rev ${quadro.revisao_vigente_codigo}` : "Sem vigente"}
-              </p>
-              <p>O envio do PDF não troca esta revisão. Só o botão Publicar faz isso.</p>
+              </span>
+            </header>
+
+            <section className="bloco">
+              <h2>Caminho do projeto</h2>
+              <p className="miudo">O supervisor indica a pasta. Um PDF novo lá substitui o da tela, sem publicar.</p>
+              {engenharia ? (
+                <form onSubmit={salvarCaminho}>
+                  <label>
+                    Pasta
+                    <input
+                      value={caminhoProjeto}
+                      onChange={(e) => setCaminhoProjeto(e.target.value)}
+                      placeholder="\\Srv3302\projetos elétricos\...\PDF"
+                    />
+                  </label>
+                  <button type="submit">Guardar caminho</button>
+                </form>
+              ) : (
+                <p>{caminhoProjeto || "Sem caminho"}</p>
+              )}
             </section>
+
+            {pdfUrl ? (
+              <iframe className="pdf-visor" title="PDF do quadro" src={pdfUrl} />
+            ) : (
+              <div className="vazio-estado">
+                <h2>Sem desenho ainda</h2>
+                <p>Guarde o caminho e salve um PDF na pasta, ou envie pelo painel.</p>
+              </div>
+            )}
 
             {engenharia ? (
               <form className="zona-envio" onSubmit={enviarPdf}>
-                <h2>Colocar o projeto</h2>
+                <h2>Envio manual</h2>
                 <p>
-                  O nome do arquivo segue o padrão <strong>CODIGO-REV.X.pdf</strong>, por exemplo{" "}
-                  <strong>PED-DEL-01890-2026-16-REV.C.pdf</strong>. O envio grava a revisão como pendente.
+                  Só se precisar furar a pasta. O nome segue <strong>CODIGO-REV.X.pdf</strong>. Grava como
+                  pendente — não publica.
                 </p>
                 <label className="zona-arquivo">
                   <span className="zona-rotulo">PDF do projeto</span>
@@ -536,6 +704,11 @@ export function App() {
                   ))}
               </form>
             ) : null}
+
+            <section className="bloco vigente-bloco">
+              <h2>Vigente</h2>
+              <p>O envio e a pasta não trocam a vigente. Só o botão Publicar faz isso.</p>
+            </section>
 
             <section className="bloco">
               <h2>Pendentes</h2>
@@ -694,26 +867,39 @@ export function App() {
 
         {tela === "revisoes" ? (
           <>
-            <h1>Revisões</h1>
-            <p>A fila inteira. O envio do painel e a pasta de rede criam pendente. Nenhum dos dois publica.</p>
+            <header className="page-head">
+              <div>
+                <h1>Revisões</h1>
+                <p className="intro">Fila inteira. Pasta e envio criam pendente. Nenhum dos dois publica.</p>
+              </div>
+              <span className="contador">{revisoes.length} na lista</span>
+            </header>
             {pastaRede && !pastaRede.acessivel ? <p className="aviso">Pasta de rede indisponível.</p> : null}
             {pastaRede?.acessivel ? <p className="ok">A pasta de rede está acessível.</p> : null}
-            <h2>Comparação com a pasta</h2>
+            {(pastaRede?.comparacoes ?? []).length > 0 ? (
+              <>
+                <h2>Comparação com a pasta</h2>
+                <div className="lista-cartoes">
+                  {(pastaRede?.comparacoes ?? []).map((item) => (
+                    <article key={`${item.pasta}/${item.arquivo}`} className="bloco">
+                      <p className="codigo-menor">{item.codigo_quadro || "Sem código"}</p>
+                      {item.grupo ? <p>Grupo: {item.grupo}</p> : null}
+                      <p>Pasta: {item.pasta}</p>
+                      <p>Arquivo: {item.arquivo}</p>
+                      <p>Alteração: {horaBrasil(item.alterado_em)}</p>
+                      <p>{item.resultado}</p>
+                    </article>
+                  ))}
+                </div>
+              </>
+            ) : null}
             <div className="lista-cartoes">
-              {(pastaRede?.comparacoes ?? []).length === 0 ? <p>Nenhuma comparação nesta leitura.</p> : null}
-              {(pastaRede?.comparacoes ?? []).map((item) => (
-                <article key={`${item.pasta}/${item.arquivo}`} className="bloco">
-                  <p className="codigo-menor">{item.codigo_quadro || "Sem código"}</p>
-                  {item.grupo ? <p>Grupo: {item.grupo}</p> : null}
-                  <p>Pasta: {item.pasta}</p>
-                  <p>Arquivo: {item.arquivo}</p>
-                  <p>Alteração: {horaBrasil(item.alterado_em)}</p>
-                  <p>{item.resultado}</p>
-                </article>
-              ))}
-            </div>
-            <div className="lista-cartoes">
-              {revisoes.length === 0 ? <p>Nenhuma revisão.</p> : null}
+              {revisoes.length === 0 ? (
+                <div className="vazio-estado">
+                  <h2>Nenhuma revisão</h2>
+                  <p>Quando um PDF entrar pelo caminho ou pelo envio, aparece aqui.</p>
+                </div>
+              ) : null}
               {revisoes.map((item) => (
                 <article key={item.id} className="bloco">
                   <p className="codigo-menor">

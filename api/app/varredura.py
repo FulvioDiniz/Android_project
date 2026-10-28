@@ -105,18 +105,39 @@ def codigo_revisao_do_arquivo(nome: str) -> str:
     return nome
 
 
-def pastas_de_projeto(base: Path) -> list[tuple[str, str, Path]]:
-    achados = []
-    for pasta in base.rglob("*"):
-        if not pasta.is_dir() or pasta.name.lower() != "pdf":
-            continue
-        quadro_dir = pasta.parent
-        if quadro_dir == base:
-            continue
-        relativo = quadro_dir.relative_to(base)
-        grupo = relativo.parts[0] if relativo.parts else ""
-        achados.append((grupo, quadro_dir.name, pasta))
-    return achados
+IGNORAR_DESVIO = {
+    "eplan",
+    "documentos",
+    "lista de materiais",
+    "@recycle",
+    "@recently-snapshot",
+}
+
+
+def pastas_de_projeto(base: Path):
+    def visitar(pasta: Path):
+        try:
+            filhos = list(pasta.iterdir())
+        except OSError:
+            return
+        for filho in filhos:
+            try:
+                diretorio = filho.is_dir()
+            except OSError:
+                continue
+            if not diretorio:
+                continue
+            if filho.name.lower() == "pdf" and filho.parent != base:
+                quadro_dir = filho.parent
+                relativo = quadro_dir.relative_to(base)
+                grupo = relativo.parts[0] if relativo.parts else ""
+                yield grupo, quadro_dir.name, filho
+                continue
+            if filho.name.lower() in IGNORAR_DESVIO:
+                continue
+            yield from visitar(filho)
+
+    yield from visitar(base)
 
 
 def garantir_quadro(conn, codigo: str, grupo: str) -> str:
@@ -189,7 +210,7 @@ def _tratar_pdf(conn, raiz: Path, base: Path, grupo: str, codigo: str, pasta_pdf
         return
     digest = hashlib.sha256(conteudo).hexdigest()
     alterado_em = _iso_mtime(item)
-    pasta = str(pasta_pdf.relative_to(base))
+    pasta = pasta_pdf.relative_to(base).as_posix()
     quadro_id = garantir_quadro(conn, codigo, grupo)
     caminho = str(pasta_pdf / item.name)
     tratado = conn.execute(
@@ -249,13 +270,98 @@ def varrer_uma_vez(db_path: str, arquivos_dir: str, caminho: str, estado: dict) 
             return
         registrar_estado(conn, caminho, True, "A pasta de rede está acessível.")
         conn.commit()
+        vistos = 0
         for grupo, codigo, pasta_pdf in pastas_de_projeto(base):
             garantir_quadro(conn, codigo, grupo)
             conn.commit()
-            pdfs = [item for item in pasta_pdf.iterdir() if item.is_file() and item.suffix.lower() == ".pdf"]
+            try:
+                pdfs = [item for item in pasta_pdf.iterdir() if item.is_file() and item.suffix.lower() == ".pdf"]
+            except OSError:
+                continue
+            vistos += len(pdfs)
             for item in sorted(pdfs, key=lambda arquivo: (arquivo.stat().st_mtime, arquivo.name)):
                 if observar(estado, item):
                     _tratar_pdf(conn, Path(arquivos_dir), base, grupo, codigo, pasta_pdf, item)
+        print(f"pdfs_vistos {vistos}", flush=True)
+
+
+def _pdf_mais_recente(pasta: Path) -> Path | None:
+    alvo = pasta / "PDF" if pasta.name.lower() != "pdf" and (pasta / "PDF").is_dir() else pasta
+    try:
+        pdfs = [item for item in alvo.iterdir() if item.is_file() and item.suffix.lower() == ".pdf"]
+    except OSError:
+        return None
+    if not pdfs:
+        return None
+    return max(pdfs, key=lambda item: (item.stat().st_mtime, item.name))
+
+
+def _substituir_bytes(conn, arquivos_dir: str, revisao_id: str, nome: str, conteudo: bytes) -> None:
+    arquivo_id = conn.execute(
+        "SELECT arquivo_id FROM revisao WHERE id = ?",
+        (revisao_id,),
+    ).fetchone()["arquivo_id"]
+    destino = Path(arquivos_dir) / "projetos" / arquivo_id
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    destino.write_bytes(conteudo)
+    digest = hashlib.sha256(conteudo).hexdigest()
+    conn.execute(
+        "UPDATE arquivo SET hash_sha256 = ?, tamanho_bytes = ?, nome_original = ? WHERE id = ?",
+        (digest, len(conteudo), nome, arquivo_id),
+    )
+    conn.execute(
+        "UPDATE revisao SET importada_em = ? WHERE id = ?",
+        (agora(), revisao_id),
+    )
+
+
+def atualizar_caminhos_indicados(db_path: str, arquivos_dir: str) -> None:
+    """O supervisor indica a pasta. Um PDF salvo lá substitui o que está na tela."""
+    init_db(db_path)
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            """SELECT id, caminho_projeto FROM quadro
+               WHERE caminho_projeto IS NOT NULL AND trim(caminho_projeto) != ''
+                 AND status != 'cancelado'"""
+        ).fetchall()
+        for row in rows:
+            try:
+                recente = _pdf_mais_recente(Path(row["caminho_projeto"]))
+                if recente is None:
+                    continue
+                conteudo = recente.read_bytes()
+                if not conteudo:
+                    continue
+                digest = hashlib.sha256(conteudo).hexdigest()
+                codigo_rev = codigo_revisao_do_arquivo(recente.name)
+                existente = conn.execute(
+                    "SELECT id FROM revisao WHERE quadro_id = ? AND codigo = ?",
+                    (row["id"], codigo_rev),
+                ).fetchone()
+                if existente:
+                    atual = conn.execute(
+                        """SELECT a.hash_sha256 FROM revisao r
+                           JOIN arquivo a ON a.id = r.arquivo_id
+                           WHERE r.id = ?""",
+                        (existente["id"],),
+                    ).fetchone()
+                    if atual and atual["hash_sha256"] == digest:
+                        continue
+                    _substituir_bytes(conn, arquivos_dir, existente["id"], recente.name, conteudo)
+                else:
+                    importar_no_quadro(
+                        conn,
+                        Path(arquivos_dir),
+                        row["id"],
+                        recente.name,
+                        conteudo,
+                        codigo_rev,
+                        "rede",
+                        None,
+                    )
+                conn.commit()
+            except OSError:
+                continue
 
 
 def main() -> None:
@@ -263,14 +369,11 @@ def main() -> None:
     arquivos = os.environ.get("QUADROS_ARQUIVOS") or str(Path(db).parent / "arquivos")
     intervalo = float(os.environ.get("QUADROS_PASTA_INTERVALO_S", "5"))
     init_db(db)
-    estado: dict = {}
     while True:
         try:
-            varrer_uma_vez(db, arquivos, caminho_configurado(), estado)
+            atualizar_caminhos_indicados(db, arquivos)
         except Exception:
-            with connect(db) as conn:
-                registrar_estado(conn, caminho_configurado(), False, INDISPONIVEL)
-                conn.commit()
+            pass
         time.sleep(intervalo)
 
 

@@ -1212,13 +1212,44 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
                 (quadro_id,),
             ).fetchall()
             ponteiro = conn.execute(
-                "SELECT revisao_vigente_id FROM quadro WHERE id = ?",
+                "SELECT revisao_vigente_id, caminho_projeto FROM quadro WHERE id = ?",
                 (quadro_id,),
             ).fetchone()
             conn.commit()
         if ponteiro is None:
             return erro(404, "nao_encontrado", "Quadro não encontrado.")
-        return JSONResponse({"revisao_vigente_id": ponteiro["revisao_vigente_id"], "revisoes": [dict(row) for row in rows]})
+        return JSONResponse({
+            "revisao_vigente_id": ponteiro["revisao_vigente_id"],
+            "caminho_projeto": ponteiro["caminho_projeto"] or "",
+            "revisoes": [dict(row) for row in rows],
+        })
+
+    @app.post("/api/quadros/{quadro_id}/caminho")
+    def guardar_caminho(quadro_id: str, corpo: dict[str, Any], request: Request) -> JSONResponse:
+        caminho = str(corpo.get("caminho") or "").strip()
+        if not caminho:
+            return erro(422, "pedido_invalido", "Informe o caminho do projeto.")
+        pasta = Path(caminho)
+        try:
+            existe = pasta.is_dir()
+        except OSError:
+            existe = False
+        if not existe:
+            return erro(422, "pedido_invalido", "Esse caminho não é uma pasta.")
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            if sessao["perfil"] != "engenharia":
+                return erro(403, "perfil_insuficiente", "Só engenharia indica o caminho.")
+            if conn.execute("SELECT 1 FROM quadro WHERE id = ?", (quadro_id,)).fetchone() is None:
+                return erro(404, "nao_encontrado", "Quadro não encontrado.")
+            conn.execute(
+                "UPDATE quadro SET caminho_projeto = ?, atualizado_em = ? WHERE id = ?",
+                (caminho, agora(), quadro_id),
+            )
+            conn.commit()
+        return JSONResponse({"id": quadro_id, "caminho_projeto": caminho})
 
     @app.get("/api/quadros/{quadro_id}/confirmacoes")
     def listar_confirmacoes(quadro_id: str, request: Request) -> JSONResponse:
