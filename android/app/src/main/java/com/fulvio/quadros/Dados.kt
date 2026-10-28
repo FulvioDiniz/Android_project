@@ -34,6 +34,7 @@ data class QuadroLocal(
     val arquivoId: String,
     val revisaoTipo: String,
     val caminho: String = "",
+    val arquivoEm: String = "",
 )
 
 @Entity(tableName = "meta")
@@ -117,7 +118,7 @@ data class DiarioLocal(
     val ocorridoEm: String,
 )
 
-@Database(entities = [QuadroLocal::class, Meta::class, FilaLocal::class, DiarioLocal::class], version = 5)
+@Database(entities = [QuadroLocal::class, Meta::class, FilaLocal::class, DiarioLocal::class], version = 6)
 abstract class BancoLocal : RoomDatabase() {
     abstract fun dao(): QuadroDao
 }
@@ -225,6 +226,7 @@ fun baixarQuadros(base: String, token: String): List<QuadroLocal> {
             arquivoId = item.optString("arquivo_id"),
             revisaoTipo = item.optString("revisao_tipo"),
             caminho = item.optString("caminho_projeto"),
+            arquivoEm = item.optString("arquivo_em"),
         )
     }
 }
@@ -264,12 +266,24 @@ fun baixarPdf(base: String, token: String, arquivoId: String, destino: File) {
     }
 }
 
-fun copiarPdfSeFaltar(dao: QuadroDao, base: String, token: String, arquivoId: String, pasta: File) {
+fun copiarPdfSeFaltar(
+    dao: QuadroDao,
+    base: String,
+    token: String,
+    arquivoId: String,
+    pasta: File,
+    arquivoEm: String = "",
+) {
     if (arquivoId.isBlank()) return
     val destino = File(pasta, "$arquivoId.pdf")
-    if (dao.ler("pdf:$arquivoId") == "ok" && destino.exists()) return
+    val marca = dao.ler("pdfquando:$arquivoId").orEmpty()
+    val mesmo = arquivoEm.isNotBlank() && marca == arquivoEm && destino.exists() && destino.length() > 0L
+    val legado = arquivoEm.isBlank() && dao.ler("pdf:$arquivoId") == "ok" && destino.exists()
+    if (mesmo || legado) return
+    if (destino.exists()) destino.delete()
     baixarPdf(base, token, arquivoId, destino)
     dao.gravar(Meta("pdf:$arquivoId", "ok"))
+    if (arquivoEm.isNotBlank()) dao.gravar(Meta("pdfquando:$arquivoId", arquivoEm))
 }
 
 fun drenarFila(dao: QuadroDao): Boolean {

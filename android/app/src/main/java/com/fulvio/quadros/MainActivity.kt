@@ -126,6 +126,7 @@ private fun Tela(dao: QuadroDao) {
     var pinos by remember { mutableStateOf<Map<String, List<PinoDesenho>>>(emptyMap()) }
     var tracos by remember { mutableStateOf<Map<String, List<TracoDesenho>>>(emptyMap()) }
     var statusSync by remember { mutableStateOf("") }
+    var novidade by remember { mutableStateOf(dao.ler("novidade") ?: "") }
     val offline = token.isNotBlank() && enlace == "Sem enlace"
 
     fun recarregar() {
@@ -148,17 +149,40 @@ private fun Tela(dao: QuadroDao) {
             enlace = "Sincronizando"
             withContext(Dispatchers.IO) { drenarFila(dao) }
             try {
-                val lista = withContext(Dispatchers.IO) { baixarQuadros(base, acesso) }
+                val listaBruta = withContext(Dispatchers.IO) { baixarQuadros(base, acesso) }
+                val lista = listaBruta.filter { it.arquivoId.isNotBlank() }
+                val antes = dao.listar().filter { it.arquivoId.isNotBlank() }
+                val conhecidos = antes.associate { it.id to (it.arquivoId + "|" + it.arquivoEm) }
+                val entrou = lista.filter { it.id !in conhecidos }
+                val mudou = lista.filter { conhecidos[it.id] != null && conhecidos[it.id] != it.arquivoId + "|" + it.arquivoEm }
+                val avisoNovo = if (antes.isEmpty()) {
+                    ""
+                } else {
+                    buildString {
+                        if (entrou.isNotEmpty()) append("Novo na engenharia: ${entrou.joinToString { it.codigo }}. ")
+                        if (mudou.isNotEmpty()) append("PDF atualizado: ${mudou.joinToString { it.codigo }}. Não monte com o desenho antigo.")
+                    }.trim()
+                }
                 withContext(Dispatchers.IO) {
                     dao.limpar()
                     dao.salvar(lista)
                     dao.gravar(Meta("servidor", base))
                     dao.gravar(Meta("token", acesso))
                     dao.gravar(Meta("sync", Instant.now().toString()))
-                    // PDF sob demanda ao abrir o desenho — nao baixa os centenas de arquivos na sync.
-                    val abertoId = aberto?.arquivoId.orEmpty()
-                    if (abertoId.isNotBlank()) {
-                        runCatching { copiarPdfSeFaltar(dao, base, acesso, abertoId, pasta) }
+                    if (avisoNovo.isNotBlank()) dao.gravar(Meta("novidade", avisoNovo))
+                    val abertoAgora = aberto
+                    if (abertoAgora != null && abertoAgora.arquivoId.isNotBlank()) {
+                        val atual = lista.find { it.id == abertoAgora.id }
+                        runCatching {
+                            copiarPdfSeFaltar(
+                                dao,
+                                base,
+                                acesso,
+                                atual?.arquivoId ?: abertoAgora.arquivoId,
+                                pasta,
+                                atual?.arquivoEm ?: abertoAgora.arquivoEm,
+                            )
+                        }
                     }
                     runCatching { baixarDiario(base, acesso) }.onSuccess { notas ->
                         dao.limparDiario()
@@ -172,8 +196,8 @@ private fun Tela(dao: QuadroDao) {
                         dao.gravar(Meta("alerta", "Revisao nova. Confira a vigente antes de seguir."))
                     }
                 }
-                val comPdf = lista.count { it.arquivoId.isNotBlank() }
-                statusSync = "${lista.size} projeto(s) · $comPdf com PDF no servidor"
+                if (avisoNovo.isNotBlank()) novidade = avisoNovo
+                statusSync = "${lista.size} com PDF de engenharia"
                 enlace = "No ar"
                 erro = ""
             } catch (falha: Exception) {
@@ -268,7 +292,7 @@ private fun Tela(dao: QuadroDao) {
             agendarFila(contexto)
             ciclo(servidor, token)
             while (true) {
-                delay(45_000)
+                delay(20_000)
                 if (token.isNotBlank()) ciclo(servidor, token)
             }
         }
@@ -322,6 +346,7 @@ private fun Tela(dao: QuadroDao) {
                         offline = offline,
                         enlace = enlace,
                         statusSync = statusSync,
+                        novidade = novidade,
                         dao = dao,
                         versao = versao,
                         aoBusca = { busca = it },
@@ -334,7 +359,7 @@ private fun Tela(dao: QuadroDao) {
                                     statusSync = "Baixando PDF de ${alvo.codigo}..."
                                     withContext(Dispatchers.IO) {
                                         runCatching {
-                                            copiarPdfSeFaltar(dao, servidor, token, alvo.arquivoId, contexto.filesDir)
+                                            copiarPdfSeFaltar(dao, servidor, token, alvo.arquivoId, contexto.filesDir, alvo.arquivoEm)
                                         }
                                     }
                                     statusSync = "PDF pronto · ${alvo.codigo}"
@@ -479,6 +504,7 @@ private fun ListaProjetos(
     offline: Boolean,
     enlace: String,
     statusSync: String,
+    novidade: String,
     dao: QuadroDao,
     versao: Int,
     aoBusca: (String) -> Unit,
@@ -487,7 +513,8 @@ private fun ListaProjetos(
     aoSair: () -> Unit,
 ) {
     val termo = busca.trim().lowercase()
-    val visiveis = quadros.filter { quadro ->
+        val comEngenharia = quadros.filter { it.arquivoId.isNotBlank() }
+        val visiveis = comEngenharia.filter { quadro ->
         termo.isBlank() || listOf(quadro.codigo, quadro.ordemNumero, quadro.clienteNome, quadro.responsavelNome, quadro.caminho, ondeEsta(quadro.caminho))
             .any { it.lowercase().contains(termo) }
     }
@@ -496,6 +523,7 @@ private fun ListaProjetos(
             Column(modifier = Modifier.weight(1f)) {
                 Text("Projetos em execução", color = Preto, fontSize = 28.sp, fontWeight = FontWeight.Bold)
                 Text("Pasta \\\\Srv3302\\projetos elétricos", color = Laranja, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text("Só entra projeto que já tem PDF na engenharia. A lista atualiza sozinha.", color = Cinza, fontSize = 13.sp)
                 Text(
                     "$nome · ${if (offline) "Offline" else enlace}",
                     color = Cinza,
@@ -507,6 +535,12 @@ private fun ListaProjetos(
             }
             Text("${quadros.size}", color = Laranja, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         }
+        if (novidade.isNotBlank()) {
+            Cartao {
+                Text("Atualização da engenharia", color = Vermelho, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text(novidade, color = Preto, fontSize = 15.sp)
+            }
+        }
         Campo("Buscar código, OP ou cliente", busca, aoMudar = aoBusca)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Box(Modifier.weight(1f)) { Botao("Atualizar projetos", aoClicar = aoAtualizar) }
@@ -515,14 +549,14 @@ private fun ListaProjetos(
         if (visiveis.isEmpty()) {
             Cartao {
                 Text(
-                    if (quadros.isEmpty()) "Nenhum projeto ainda" else "Nada encontrado",
+                    if (comEngenharia.isEmpty()) "Nenhum projeto com PDF" else "Nada encontrado",
                     color = Preto,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    if (quadros.isEmpty()) {
-                        "Toque em Atualizar. Os projetos das abas de engenharia entram com o PDF mais recente."
+                    if (comEngenharia.isEmpty()) {
+                        "Card sem PDF de engenharia não aparece. Quando a engenharia salvar o desenho, ele entra sozinho."
                     } else {
                         "Tente outro termo de busca."
                     },

@@ -136,7 +136,7 @@ fun TelaDesenho(
         }
     }
 
-    LaunchedEffect(quadro.id, quadro.arquivoId, pagina) {
+    LaunchedEffect(quadro.id, quadro.arquivoId, quadro.arquivoEm, pagina) {
         val local = File(contexto.filesDir, "${quadro.arquivoId}.pdf")
         if (quadro.arquivoId.isNotBlank() && local.exists() && local.length() > 0L) {
             runCatching { renderizar(local) }

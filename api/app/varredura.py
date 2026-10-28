@@ -380,12 +380,31 @@ def atualizar_caminhos_indicados(db_path: str, arquivos_dir: str) -> None:
                 continue
 
 
+def _incorporar_projetos_novos(db_path: str) -> None:
+    """Pega card novo de PCP/execução no P&D e deixa o PDF entrar na lista do tablet."""
+    from app.db import connect
+    from app.sincronizar_rede import sincronizar_pastas
+
+    with connect(db_path) as conn:
+        ana = conn.execute("SELECT id FROM usuario WHERE login = 'ana.ribeiro'").fetchone()
+        sincronizar_pastas(conn, ana["id"] if ana else None)
+        conn.commit()
+
+
 def main() -> None:
     db = os.environ.get("QUADROS_DB", "data/quadros.sqlite")
     arquivos = os.environ.get("QUADROS_ARQUIVOS") or str(Path(db).parent / "arquivos")
     intervalo = float(os.environ.get("QUADROS_PASTA_INTERVALO_S", "5"))
     init_db(db)
+    ultimo_catalogo = 0.0
     while True:
+        agora_s = time.time()
+        if agora_s - ultimo_catalogo >= 60:
+            try:
+                _incorporar_projetos_novos(db)
+            except Exception:
+                pass
+            ultimo_catalogo = agora_s
         try:
             atualizar_caminhos_indicados(db, arquivos)
         except Exception:

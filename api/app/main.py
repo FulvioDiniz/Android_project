@@ -469,6 +469,10 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
                              ORDER BY r2.importada_em DESC LIMIT 1),
                             rv.arquivo_id
                           ) AS arquivo_id,
+                          (SELECT r3.importada_em FROM revisao r3
+                             WHERE r3.quadro_id = q.id
+                               AND r3.arquivo_id IS NOT NULL AND trim(r3.arquivo_id) != ''
+                             ORDER BY r3.importada_em DESC LIMIT 1) AS arquivo_em,
                           rv.tipo AS revisao_tipo,
                           op.numero AS ordem_numero, c.nome AS cliente_nome,
                           q.caminho_projeto,
@@ -485,8 +489,24 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
                    ORDER BY q.codigo""",
                 (termo, termo, termo, termo, termo),
             ).fetchall()
+            if sessao["perfil"] == "montagem":
+                vivos = []
+                for row in rows:
+                    dados = dict(row)
+                    arquivo_id = (dados.get("arquivo_id") or "").strip()
+                    if not arquivo_id:
+                        continue
+                    guardado = conn.execute(
+                        "SELECT area FROM arquivo WHERE id = ?",
+                        (arquivo_id,),
+                    ).fetchone()
+                    if guardado and (app.state.arquivos / guardado["area"] / arquivo_id).is_file():
+                        vivos.append(dados)
+                rows = vivos
+            else:
+                rows = [dict(row) for row in rows]
             conn.commit()
-        return JSONResponse([dict(row) for row in rows])
+        return JSONResponse(rows)
 
     @app.get("/api/quadros/{quadro_id}")
     def obter_quadro(quadro_id: str, request: Request) -> JSONResponse:
