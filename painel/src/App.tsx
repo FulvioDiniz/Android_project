@@ -544,9 +544,9 @@ export function App() {
 
             {engenharia ? (
               <div className="bloco">
-                <h2>Pasta de rede</h2>
+                <h2>PCP / execução</h2>
                 <p className="miudo">
-                  Lê \\Srv3302\projetos elétricos e cadastra as pastas PDF que ainda não estão na lista.
+                  Lê o P&amp;D (só PCP e execução, sem finalizados) e amarra o PDF mais recente da pasta de rede.
                 </p>
                 <button
                   type="button"
@@ -554,7 +554,7 @@ export function App() {
                   onClick={async () => {
                     if (!sessao) return;
                     setErro("");
-                    setAviso("Lendo a pasta de rede…");
+                    setAviso("Sincronizando PCP/execução…");
                     try {
                       const r = await api<{
                         ok: boolean;
@@ -565,12 +565,12 @@ export function App() {
                       setAviso(r.mensagem);
                       await carregar(sessao.token);
                     } catch (falha) {
-                      setErro(falha instanceof Error ? falha.message : "Falha ao ler a rede");
+                      setErro(falha instanceof Error ? falha.message : "Falha ao sincronizar");
                       setAviso("");
                     }
                   }}
                 >
-                  Sincronizar projetos da rede
+                  Sincronizar PCP / execução
                 </button>
               </div>
             ) : null}
