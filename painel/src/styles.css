@@ -74,6 +74,43 @@ main {
   white-space: pre-wrap;
 }
 
+.visor-pdf {
+  margin: 16px 0 24px;
+}
+
+.visor-nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.visor-nav button {
+  margin: 0;
+}
+
+.visor-folha {
+  position: relative;
+  background: #fff;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(28, 25, 23, 0.08);
+}
+
+.visor-folha canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.visor-folha .marcas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
 .apontamento {
   margin-top: 12px;
   padding-top: 12px;

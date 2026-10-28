@@ -193,13 +193,39 @@ private fun Tela(dao: QuadroDao) {
         if (token.isNotBlank()) ciclo(servidor, token)
     }
 
-    fun textoApontamento(pino: PinoDesenho, mensagem: String): String {
-        val tipo = if (pino.tipo == ModoDesenho.Erro) "ERRO" else "MUDANCA"
-        return "[$tipo] Folha ${pino.pagina + 1} · marca ${(pino.x * 100).toInt()}% x ${(pino.y * 100).toInt()}%\n$mensagem"
+    fun textoApontamento(pino: PinoDesenho?, mensagem: String, tracos: List<TracoDesenho>): String {
+        val folha = (pino?.pagina ?: tracos.firstOrNull()?.pagina ?: 0) + 1
+        val tipo = when (pino?.tipo) {
+            ModoDesenho.Erro -> "ERRO"
+            ModoDesenho.Mudanca -> "MUDANCA"
+            else -> "DESENHO"
+        }
+        val pos = if (pino != null) " · marca ${(pino.x * 100).toInt()}% x ${(pino.y * 100).toInt()}%" else ""
+        val marcas = org.json.JSONObject()
+            .put("folha", folha)
+        if (pino != null) {
+            marcas.put(
+                "pin",
+                org.json.JSONObject()
+                    .put("x", pino.x.toDouble())
+                    .put("y", pino.y.toDouble())
+                    .put("tipo", if (pino.tipo == ModoDesenho.Erro) "erro" else "mudanca"),
+            )
+        }
+        val linhas = org.json.JSONArray()
+        tracos.filter { it.pagina == folha - 1 }.forEach { traco ->
+            val linha = org.json.JSONArray()
+            traco.pontos.forEach { ponto ->
+                linha.put(org.json.JSONArray().put(ponto.x.toDouble()).put(ponto.y.toDouble()))
+            }
+            linhas.put(linha)
+        }
+        marcas.put("tracos", linhas)
+        return "[$tipo] Folha $folha$pos\n$mensagem\n@@marcas@@$marcas"
     }
 
-    fun enviarApontamento(quadro: QuadroLocal, pino: PinoDesenho, mensagem: String, comFoto: Boolean = false, uriFoto: android.net.Uri? = null) {
-        val texto = textoApontamento(pino, mensagem)
+    fun enviarApontamento(quadro: QuadroLocal, pino: PinoDesenho?, mensagem: String, tracos: List<TracoDesenho> = emptyList(), comFoto: Boolean = false, uriFoto: android.net.Uri? = null) {
+        val texto = textoApontamento(pino, mensagem, tracos)
         val duvida = novaOperacao(
             tipo = "duvida",
             quadroId = quadro.id,
@@ -335,8 +361,8 @@ private fun Tela(dao: QuadroDao) {
                         aoAtualizarTracos = { novos ->
                             tracos = tracos + (aberto!!.id to novos)
                         },
-                        aoEnviar = { pino, mensagem ->
-                            enviarApontamento(aberto!!, pino, mensagem)
+                        aoEnviar = { pino, mensagem, tracosFolha ->
+                            enviarApontamento(aberto!!, pino, mensagem, tracosFolha)
                         },
                         aoFoto = { pino, mensagem ->
                             pendenteFoto = aberto!! to (pino to mensagem)

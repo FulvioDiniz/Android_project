@@ -7,10 +7,12 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.rememberTransformableState
-import androidx.compose.foundation.gestures.transformable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,7 +26,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.gestures.TransformableState
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
@@ -52,6 +54,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -89,7 +92,7 @@ fun TelaDesenho(
     tracos: List<TracoDesenho>,
     aoAtualizarPinos: (List<PinoDesenho>) -> Unit,
     aoAtualizarTracos: (List<TracoDesenho>) -> Unit,
-    aoEnviar: (PinoDesenho, String) -> Unit,
+    aoEnviar: (PinoDesenho?, String, List<TracoDesenho>) -> Unit,
     aoFoto: (PinoDesenho, String) -> Unit,
     aoVoltar: () -> Unit,
 ) {
@@ -103,7 +106,6 @@ fun TelaDesenho(
     var texto by remember { mutableStateOf("") }
     var escala by remember(quadro.id) { mutableFloatStateOf(1f) }
     var deslocamento by remember(quadro.id) { mutableStateOf(Offset.Zero) }
-    var tracoAtual by remember { mutableStateOf<List<Offset>>(emptyList()) }
 
     fun renderizar(arquivo: File) {
         val descritor = ParcelFileDescriptor.open(arquivo, ParcelFileDescriptor.MODE_READ_ONLY)
@@ -152,25 +154,17 @@ fun TelaDesenho(
         }
         escala = 1f
         deslocamento = Offset.Zero
-        tracoAtual = emptyList()
     }
 
     fun entrarModo(novo: ModoDesenho) {
         modo = novo
-        if (novo != ModoDesenho.Ver) {
-            escala = 1f
-            deslocamento = Offset.Zero
-        }
         if (novo != ModoDesenho.Erro && novo != ModoDesenho.Mudanca) {
             rascunho = null
             texto = ""
         }
-        tracoAtual = emptyList()
     }
 
-    fun fecharTraco() {
-        val pontos = tracoAtual
-        tracoAtual = emptyList()
+    fun guardarTraco(pontos: List<Offset>) {
         if (pontos.size < 2) return
         aoAtualizarTracos(
             tracos + TracoDesenho(
@@ -180,14 +174,6 @@ fun TelaDesenho(
                 cor = Laranja,
             ),
         )
-    }
-
-    val transform = rememberTransformableState { zoom, pan, _ ->
-        if (modo == ModoDesenho.Ver) {
-            val nova = (escala * zoom).coerceIn(1f, 5f)
-            escala = nova
-            deslocamento += pan
-        }
     }
 
     val pinosPagina = pinos.filter { it.pagina == pagina }
@@ -207,10 +193,12 @@ fun TelaDesenho(
             modo = modo,
             escala = escala,
             deslocamento = deslocamento,
-            transform = transform,
             pinos = pinosVisiveis,
             tracos = tracosPagina,
-            tracoAtual = tracoAtual,
+            aoZoom = { fator, pan ->
+                escala = (escala * fator).coerceIn(1f, 6f)
+                deslocamento += pan
+            },
             aoToque = { x, y ->
                 if (modo == ModoDesenho.Erro || modo == ModoDesenho.Mudanca) {
                     rascunho = PinoDesenho(
@@ -224,12 +212,7 @@ fun TelaDesenho(
                     painelAberto = true
                 }
             },
-            aoArrastar = { ponto ->
-                if (modo == ModoDesenho.Lapis) tracoAtual = tracoAtual + ponto
-            },
-            aoSoltar = {
-                if (modo == ModoDesenho.Lapis) fecharTraco()
-            },
+            aoCommitTraco = { pontos -> guardarTraco(pontos) },
         )
 
         Row(
@@ -285,12 +268,27 @@ fun TelaDesenho(
             }
             if (painelAberto) {
                 val alvo = rascunho
-                if (alvo == null) {
+                if (alvo == null && tracosPagina.isEmpty()) {
                     Text(
-                        "Escolha Erro ou Mudança e toque no desenho.",
+                        "Desenhe com o dedo, ou toque no modo Erro/Mudança. Dois dedos dão zoom.",
                         color = Cinza,
                         fontSize = 14.sp,
                     )
+                } else if (alvo == null) {
+                    Text(
+                        "${tracosPagina.size} traço(s) nesta folha. Envie para a engenharia ver no PDF.",
+                        color = Preto,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Campo("Comentário", texto, linhas = 2, aoMudar = { texto = it })
+                    Botao("Enviar marcação") {
+                        val mensagem = texto.trim().ifBlank { "Marcação no desenho" }
+                        aoEnviar(null, mensagem, tracosPagina)
+                        texto = ""
+                        modo = ModoDesenho.Ver
+                        painelAberto = false
+                    }
                 } else {
                     Text(
                         if (alvo.tipo == ModoDesenho.Erro) "Erro nesta folha" else "Mudança nesta folha",
@@ -301,11 +299,11 @@ fun TelaDesenho(
                     Campo("Texto para a engenharia", texto, linhas = 3, aoMudar = { texto = it })
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Box(Modifier.weight(1f)) {
-                            Botao("Enviar", enabled = texto.trim().isNotBlank()) {
-                                val mensagem = texto.trim()
+                            Botao("Enviar", enabled = texto.trim().isNotBlank() || tracosPagina.isNotEmpty()) {
+                                val mensagem = texto.trim().ifBlank { "Marcação no desenho" }
                                 val pronto = alvo.copy(texto = mensagem, enviado = true)
                                 aoAtualizarPinos(pinos + pronto)
-                                aoEnviar(pronto, mensagem)
+                                aoEnviar(pronto, mensagem, tracosPagina)
                                 rascunho = null
                                 texto = ""
                                 modo = ModoDesenho.Ver
@@ -335,15 +333,18 @@ private fun AreaPdf(
     modo: ModoDesenho,
     escala: Float,
     deslocamento: Offset,
-    transform: TransformableState,
     pinos: List<PinoDesenho>,
     tracos: List<TracoDesenho>,
-    tracoAtual: List<Offset>,
+    aoZoom: (Float, Offset) -> Unit,
     aoToque: (Float, Float) -> Unit,
-    aoArrastar: (Offset) -> Unit,
-    aoSoltar: () -> Unit,
+    aoCommitTraco: (List<Offset>) -> Unit,
 ) {
     val density = LocalDensity.current
+    val zoomAtual = rememberUpdatedState(aoZoom)
+    val toqueAtual = rememberUpdatedState(aoToque)
+    val commitAtual = rememberUpdatedState(aoCommitTraco)
+    val modoAtual = rememberUpdatedState(modo)
+    var vivo by remember { mutableStateOf<List<Offset>>(emptyList()) }
     Box(
         modifier = modifier
             .shadow(12.dp, Folha)
@@ -373,35 +374,59 @@ private fun AreaPdf(
                             translationX = deslocamento.x,
                             translationY = deslocamento.y,
                         )
-                        .then(
-                            when (modo) {
-                                ModoDesenho.Ver -> Modifier.transformable(state = transform)
-                                ModoDesenho.Lapis -> Modifier.pointerInput(modo, desenhoW, desenhoH) {
-                                    detectDragGestures(
-                                        onDragEnd = { aoSoltar() },
-                                        onDragCancel = { aoSoltar() },
-                                    ) { change, _ ->
-                                        change.consume()
-                                        val w = size.width.toFloat().coerceAtLeast(1f)
-                                        val h = size.height.toFloat().coerceAtLeast(1f)
-                                        aoArrastar(
-                                            Offset(
-                                                (change.position.x / w).coerceIn(0f, 1f),
-                                                (change.position.y / h).coerceIn(0f, 1f),
-                                            ),
-                                        )
+                        .pointerInput(desenhoW, desenhoH) {
+                            fun normalizar(x: Float, y: Float) = Offset(
+                                (x / size.width.toFloat().coerceAtLeast(1f)).coerceIn(0f, 1f),
+                                (y / size.height.toFloat().coerceAtLeast(1f)).coerceIn(0f, 1f),
+                            )
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                val modoAgora = modoAtual.value
+                                if (modoAgora == ModoDesenho.Ver) {
+                                    var evento = awaitPointerEvent()
+                                    while (evento.changes.any { it.pressed }) {
+                                        zoomAtual.value(evento.calculateZoom(), evento.calculatePan())
+                                        evento.changes.forEach { it.consume() }
+                                        evento = awaitPointerEvent()
+                                    }
+                                } else {
+                                    val segundo = withTimeoutOrNull(80) {
+                                        var evento = awaitPointerEvent()
+                                        while (evento.changes.count { it.pressed } < 2) {
+                                            if (evento.changes.none { it.pressed }) return@withTimeoutOrNull null
+                                            evento = awaitPointerEvent()
+                                        }
+                                        evento
+                                    }
+                                    if (segundo != null) {
+                                        zoomAtual.value(segundo.calculateZoom(), segundo.calculatePan())
+                                        var evento = awaitPointerEvent()
+                                        while (evento.changes.any { it.pressed }) {
+                                            zoomAtual.value(evento.calculateZoom(), evento.calculatePan())
+                                            evento.changes.forEach { it.consume() }
+                                            evento = awaitPointerEvent()
+                                        }
+                                    } else if (modoAgora == ModoDesenho.Lapis) {
+                                        val buffer = mutableListOf(normalizar(down.position.x, down.position.y))
+                                        vivo = buffer.toList()
+                                        drag(down.id) { change ->
+                                            buffer.add(normalizar(change.position.x, change.position.y))
+                                            vivo = buffer.toList()
+                                            change.consume()
+                                        }
+                                        val copia = buffer.toList()
+                                        vivo = emptyList()
+                                        if (copia.size >= 2) commitAtual.value(copia)
+                                    } else {
+                                        val up = waitForUpOrCancellation()
+                                        if (up != null) {
+                                            val ponto = normalizar(up.position.x, up.position.y)
+                                            toqueAtual.value(ponto.x, ponto.y)
+                                        }
                                     }
                                 }
-                                ModoDesenho.Erro, ModoDesenho.Mudanca -> Modifier.pointerInput(modo, desenhoW, desenhoH) {
-                                    detectTapGestures { offset ->
-                                        aoToque(
-                                            (offset.x / size.width.toFloat().coerceAtLeast(1f)).coerceIn(0f, 1f),
-                                            (offset.y / size.height.toFloat().coerceAtLeast(1f)).coerceIn(0f, 1f),
-                                        )
-                                    }
-                                }
-                            },
-                        ),
+                            }
+                        },
                 ) {
                     Image(
                         bitmap = bitmap.asImageBitmap(),
@@ -428,7 +453,7 @@ private fun AreaPdf(
                             )
                         }
                         tracos.forEach { desenharTraco(it.pontos, it.cor, it.espessura) }
-                        desenharTraco(tracoAtual, Laranja, 4f)
+                        desenharTraco(vivo, Laranja, 4f)
                         pinos.forEach { pino ->
                             val cor = when (pino.tipo) {
                                 ModoDesenho.Erro -> Vermelho

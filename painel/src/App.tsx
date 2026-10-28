@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { VisorPdf, lerMarca, type MarcaPdf } from "./VisorPdf";
 
 type Tela = "quadros" | "quadro" | "revisoes" | "duvidas" | "bancadas" | "auditoria" | "pessoas";
 
@@ -734,7 +735,7 @@ export function App() {
                 .map((item) => (
                   <article key={item.id} className="apontamento">
                     <p className="codigo-menor">{item.usuario}</p>
-                    <p className="texto-apontamento">{item.texto}</p>
+                    <p className="texto-apontamento">{lerMarca(item.texto).visivel}</p>
                     {item.resposta ? <p className="ok">Resposta: {item.resposta}</p> : <p className="aviso">Sem resposta</p>}
                   </article>
                 ))}
@@ -781,7 +782,13 @@ export function App() {
             </section>
 
             {pdfUrl ? (
-              <iframe className="pdf-visor" title="PDF do quadro" src={pdfUrl} />
+              <VisorPdf
+                url={pdfUrl}
+                marcas={duvidas
+                  .filter((item) => item.quadro_id === quadro.id)
+                  .map((item) => lerMarca(item.texto).marca)
+                  .filter((item): item is MarcaPdf => item !== null)}
+              />
             ) : (
               <div className="vazio-estado">
                 <h2>Sem desenho ainda</h2>
@@ -1064,7 +1071,7 @@ export function App() {
                       {erro ? "Erro" : mudanca ? "Mudança" : "Dúvida"} · {item.quadro_codigo}
                     </p>
                     <p className="miudo">{item.usuario}</p>
-                    <p className="texto-apontamento">{item.texto}</p>
+                    <p className="texto-apontamento">{lerMarca(item.texto).visivel}</p>
                     {item.fotos.length > 0 ? (
                       <p>{item.fotos.length === 1 ? "Uma foto anexada." : `${item.fotos.length} fotos anexadas.`}</p>
                     ) : null}
