@@ -1,0 +1,17 @@
+.venv/
+.env
+__pycache__/
+*.pyc
+.pytest_cache/
+api/data/*.sqlite
+api/data/*.sqlite-*
+api/data/arquivos/
+node_modules/
+painel/dist/
+android/.gradle/
+android/build/
+android/app/build/
+local.properties
+*.iml
+.idea/
+.playwright-mcp/
