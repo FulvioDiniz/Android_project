@@ -199,7 +199,7 @@ fun TelaDesenho(
 
     Box(modifier = Modifier.fillMaxSize().background(Branco)) {
         AreaPdf(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().padding(top = 76.dp, bottom = 96.dp),
             bitmap = bitmap,
             falha = falha,
             modo = modo,
@@ -279,55 +279,44 @@ fun TelaDesenho(
                 Chip(if (painelAberto) "Fechar" else "Enviar", painelAberto) { painelAberto = !painelAberto }
             }
             if (painelAberto) {
-                PainelApontamento(
-                    quadro = quadro,
-                    modo = modo,
-                    aoModo = { entrarModo(it) },
-                    pagina = pagina,
-                    folhas = folhas,
-                    aoPagina = { pagina = it },
-                    rascunho = rascunho,
-                    texto = texto,
-                    aoTexto = { texto = it },
-                    pinos = pinosPagina,
-                    tracosNaFolha = tracosPagina.size,
-                    aoLimparTracos = {
-                        aoAtualizarTracos(tracos.filterNot { it.pagina == pagina })
-                        tracoAtual = emptyList()
-                    },
-                    aoCancelar = {
-                        rascunho = null
-                        texto = ""
-                        modo = ModoDesenho.Ver
-                    },
-                    aoEnviar = {
-                        val alvo = rascunho
-                        val mensagem = texto.trim()
-                        if (alvo != null && mensagem.isNotBlank()) {
-                            val pronto = alvo.copy(texto = mensagem, enviado = true)
-                            aoAtualizarPinos(pinos + pronto)
-                            aoEnviar(pronto, mensagem)
-                            rascunho = null
-                            texto = ""
-                            modo = ModoDesenho.Ver
-                            painelAberto = false
+                val alvo = rascunho
+                if (alvo == null) {
+                    Text(
+                        "Escolha Erro ou Mudanca e toque no desenho.",
+                        color = Cinza,
+                        fontSize = 14.sp,
+                    )
+                } else {
+                    Text(
+                        if (alvo.tipo == ModoDesenho.Erro) "Erro nesta folha" else "Mudanca nesta folha",
+                        color = Preto,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Campo("Texto para a engenharia", texto, linhas = 3, aoMudar = { texto = it })
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Box(Modifier.weight(1f)) {
+                            Botao("Enviar", enabled = texto.trim().isNotBlank()) {
+                                val mensagem = texto.trim()
+                                val pronto = alvo.copy(texto = mensagem, enviado = true)
+                                aoAtualizarPinos(pinos + pronto)
+                                aoEnviar(pronto, mensagem)
+                                rascunho = null
+                                texto = ""
+                                modo = ModoDesenho.Ver
+                                painelAberto = false
+                            }
                         }
-                    },
-                    aoFoto = {
-                        val alvo = rascunho
-                        val mensagem = texto.trim()
-                        if (alvo != null && mensagem.isNotBlank()) {
-                            val pronto = alvo.copy(texto = mensagem, enviado = true)
-                            aoAtualizarPinos(pinos + pronto)
-                            aoFoto(pronto, mensagem)
-                            rascunho = null
-                            texto = ""
-                            modo = ModoDesenho.Ver
-                            painelAberto = false
+                        Box(Modifier.weight(1f)) {
+                            Botao("Cancelar", preenchido = false, cor = Cinza) {
+                                rascunho = null
+                                texto = ""
+                                modo = ModoDesenho.Ver
+                                painelAberto = false
+                            }
                         }
-                    },
-                    aoVoltar = aoVoltar,
-                )
+                    }
+                }
             }
         }
     }
