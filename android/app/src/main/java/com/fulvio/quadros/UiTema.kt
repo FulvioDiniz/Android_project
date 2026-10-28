@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
@@ -26,18 +27,26 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-val Fundo = Color(0xFFF4F5F7)
-val Branco = Color.White
-val Preto = Color(0xFF1A1D23)
-val Cinza = Color(0xFF5B616C)
-val Borda = Color(0xFFE4E6EB)
-val Amarelo = Color(0xFFE6A817)
-val Vermelho = Color(0xFFC62828)
-val Azul = Color(0xFF1565C0)
-val Verde = Color(0xFF2E7D32)
-val Forma = RoundedCornerShape(18.dp)
-val FormaSelo = RoundedCornerShape(12.dp)
+/** Tema fábrica: branco + laranja (sem dark). */
+val Fundo = Color(0xFFFFF7F0)
+val FundoFaixa = Color(0xFFFFE8D6)
+val Branco = Color(0xFFFFFFFF)
+val Preto = Color(0xFF1C1917)
+val Cinza = Color(0xFF6B635C)
+val Borda = Color(0xFFF0DCC8)
+val Laranja = Color(0xFFE85D04)
+val LaranjaSuave = Color(0xFFFFF1E6)
+val Amarelo = Laranja
+val Vermelho = Color(0xFFC2410C)
+val Azul = Color(0xFF0F766E)
+val Verde = Color(0xFF15803D)
+val Forma = RoundedCornerShape(16.dp)
+val FormaSelo = RoundedCornerShape(10.dp)
 val FormaPequena = RoundedCornerShape(12.dp)
+
+val GradienteMarca = Brush.verticalGradient(
+    colors = listOf(Color(0xFFFFFBF7), FundoFaixa),
+)
 
 @Composable
 fun Cartao(modifier: Modifier = Modifier, conteudo: @Composable () -> Unit) {
@@ -70,7 +79,7 @@ fun Campo(
             singleLine = linhas == 1,
             maxLines = linhas.coerceAtLeast(1),
             textStyle = TextStyle(color = Preto, fontSize = 18.sp, fontWeight = FontWeight.Medium),
-            cursorBrush = SolidColor(Amarelo),
+            cursorBrush = SolidColor(Laranja),
             visualTransformation = if (senha) PasswordVisualTransformation() else VisualTransformation.None,
             modifier = Modifier
                 .fillMaxWidth()
@@ -88,7 +97,7 @@ fun Botao(
     texto: String,
     enabled: Boolean = true,
     preenchido: Boolean = true,
-    cor: Color = Preto,
+    cor: Color = Laranja,
     aoClicar: () -> Unit,
 ) {
     Box(
@@ -98,13 +107,13 @@ fun Botao(
             .clip(FormaPequena)
             .background(
                 when {
-                    !enabled -> Color(0xFFD9D6D0)
+                    !enabled -> Color(0xFFE8DED4)
                     preenchido -> cor
                     else -> Branco
                 },
             )
             .then(
-                if (!preenchido && enabled) Modifier.border(1.dp, cor, FormaPequena) else Modifier,
+                if (!preenchido && enabled) Modifier.border(1.5.dp, cor, FormaPequena) else Modifier,
             )
             .clickable(enabled = enabled, onClick = aoClicar),
         contentAlignment = Alignment.Center,
@@ -123,7 +132,7 @@ fun Botao(
 }
 
 @Composable
-fun Chip(texto: String, ativo: Boolean, cor: Color = Amarelo, aoClicar: () -> Unit) {
+fun Chip(texto: String, ativo: Boolean, cor: Color = Laranja, aoClicar: () -> Unit) {
     Box(
         modifier = Modifier
             .clip(FormaSelo)
@@ -132,7 +141,12 @@ fun Chip(texto: String, ativo: Boolean, cor: Color = Amarelo, aoClicar: () -> Un
             .clickable(onClick = aoClicar)
             .padding(horizontal = 14.dp, vertical = 10.dp),
     ) {
-        Text(texto, color = Preto, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        Text(
+            texto,
+            color = if (ativo && cor == Laranja) Branco else Preto,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+        )
     }
 }
 
@@ -142,10 +156,10 @@ fun SeloTexto(texto: String, vigente: Boolean) {
         texto,
         modifier = Modifier
             .clip(FormaSelo)
-            .background(if (vigente) Amarelo else Branco)
-            .border(1.dp, if (vigente) Amarelo else Borda, FormaSelo)
+            .background(if (vigente) Laranja else LaranjaSuave)
+            .border(1.dp, if (vigente) Laranja else Borda, FormaSelo)
             .padding(horizontal = 14.dp, vertical = 8.dp),
-        color = Preto,
+        color = if (vigente) Branco else Preto,
         fontSize = 15.sp,
         fontWeight = FontWeight.Bold,
     )

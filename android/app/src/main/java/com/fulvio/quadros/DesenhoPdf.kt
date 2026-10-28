@@ -7,6 +7,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
@@ -42,7 +43,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -55,7 +60,7 @@ import java.io.File
 import kotlin.math.max
 import kotlin.math.min
 
-enum class ModoDesenho { Ver, Erro, Mudanca }
+enum class ModoDesenho { Ver, Lapis, Erro, Mudanca }
 
 data class PinoDesenho(
     val id: String,
@@ -67,11 +72,21 @@ data class PinoDesenho(
     val enviado: Boolean = false,
 )
 
+data class TracoDesenho(
+    val id: String,
+    val pagina: Int,
+    val pontos: List<Offset>,
+    val cor: Color = Laranja,
+    val espessura: Float = 4f,
+)
+
 @Composable
 fun TelaDesenho(
     quadro: QuadroLocal,
     pinos: List<PinoDesenho>,
+    tracos: List<TracoDesenho>,
     aoAtualizarPinos: (List<PinoDesenho>) -> Unit,
+    aoAtualizarTracos: (List<TracoDesenho>) -> Unit,
     aoEnviar: (PinoDesenho, String) -> Unit,
     aoFoto: (PinoDesenho, String) -> Unit,
     aoVoltar: () -> Unit,
@@ -86,6 +101,7 @@ fun TelaDesenho(
     var texto by remember { mutableStateOf("") }
     var escala by remember(quadro.id) { mutableFloatStateOf(1f) }
     var deslocamento by remember(quadro.id) { mutableStateOf(Offset.Zero) }
+    var tracoAtual by remember { mutableStateOf<List<Offset>>(emptyList()) }
 
     fun renderizar(arquivo: File) {
         val descritor = ParcelFileDescriptor.open(arquivo, ParcelFileDescriptor.MODE_READ_ONLY)
@@ -93,7 +109,7 @@ fun TelaDesenho(
         folhas = renderer.pageCount.coerceAtLeast(1)
         val indice = pagina.coerceIn(0, folhas - 1)
         val folha = renderer.openPage(indice)
-        val escalaBase = 2f
+        val escalaBase = 2.2f
         val largura = (folha.width * escalaBase).toInt().coerceAtLeast(1)
         val altura = (folha.height * escalaBase).toInt().coerceAtLeast(1)
         val imagem = Bitmap.createBitmap(largura, altura, Bitmap.Config.ARGB_8888)
@@ -126,39 +142,62 @@ fun TelaDesenho(
             val anterior = bitmap
             bitmap = null
             if (anterior != null && !anterior.isRecycled) anterior.recycle()
-            falha = "O PDF ainda não está neste aparelho. Atualize a lista."
+            falha = if (quadro.arquivoId.isBlank()) {
+                "Este projeto ainda não tem PDF na engenharia."
+            } else {
+                "Baixando o PDF… atualize a lista se demorar."
+            }
         }
         escala = 1f
         deslocamento = Offset.Zero
+        tracoAtual = emptyList()
     }
 
     fun entrarModo(novo: ModoDesenho) {
         modo = novo
-        // Marca só com zoom 1:1 — evita pino longe do toque.
         if (novo != ModoDesenho.Ver) {
             escala = 1f
             deslocamento = Offset.Zero
-        } else {
+        }
+        if (novo != ModoDesenho.Erro && novo != ModoDesenho.Mudanca) {
             rascunho = null
             texto = ""
         }
+        tracoAtual = emptyList()
+    }
+
+    fun fecharTraco() {
+        val pontos = tracoAtual
+        tracoAtual = emptyList()
+        if (pontos.size < 2) return
+        aoAtualizarTracos(
+            tracos + TracoDesenho(
+                id = java.util.UUID.randomUUID().toString(),
+                pagina = pagina,
+                pontos = pontos,
+                cor = Laranja,
+            ),
+        )
     }
 
     val transform = rememberTransformableState { zoom, pan, _ ->
         if (modo == ModoDesenho.Ver) {
-            val nova = (escala * zoom).coerceIn(1f, 4f)
+            val nova = (escala * zoom).coerceIn(1f, 5f)
             escala = nova
             deslocamento += pan
         }
     }
 
+    val pinosPagina = pinos.filter { it.pagina == pagina }
+    val pinosVisiveis = pinosPagina + listOfNotNull(rascunho?.takeIf { it.pagina == pagina })
+    val tracosPagina = tracos.filter { it.pagina == pagina }
+
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val largo = maxWidth >= 900.dp
-        val pinosPagina = pinos.filter { it.pagina == pagina }
-        val pinosVisiveis = pinosPagina + listOfNotNull(rascunho?.takeIf { it.pagina == pagina })
 
+        // Painel local @Composable quebra o contexto Compose — chamar inline.
         if (largo) {
-            Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 AreaPdf(
                     modifier = Modifier.weight(1f).fillMaxHeight(),
                     bitmap = bitmap,
@@ -168,8 +207,10 @@ fun TelaDesenho(
                     deslocamento = deslocamento,
                     transform = transform,
                     pinos = pinosVisiveis,
+                    tracos = tracosPagina,
+                    tracoAtual = tracoAtual,
                     aoToque = { x, y ->
-                        if (modo != ModoDesenho.Ver) {
+                        if (modo == ModoDesenho.Erro || modo == ModoDesenho.Mudanca) {
                             rascunho = PinoDesenho(
                                 id = java.util.UUID.randomUUID().toString(),
                                 pagina = pagina,
@@ -179,6 +220,14 @@ fun TelaDesenho(
                             )
                             texto = ""
                         }
+                    },
+                    aoArrastar = { ponto ->
+                        if (modo == ModoDesenho.Lapis) {
+                            tracoAtual = tracoAtual + ponto
+                        }
+                    },
+                    aoSoltar = {
+                        if (modo == ModoDesenho.Lapis) fecharTraco()
                     },
                 )
                 Box(modifier = Modifier.width(380.dp).fillMaxHeight()) {
@@ -193,6 +242,11 @@ fun TelaDesenho(
                         texto = texto,
                         aoTexto = { texto = it },
                         pinos = pinosPagina,
+                        tracosNaFolha = tracosPagina.size,
+                        aoLimparTracos = {
+                            aoAtualizarTracos(tracos.filterNot { it.pagina == pagina })
+                            tracoAtual = emptyList()
+                        },
                         aoCancelar = {
                             rascunho = null
                             texto = ""
@@ -227,7 +281,7 @@ fun TelaDesenho(
                 }
             }
         } else {
-            Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 AreaPdf(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                     bitmap = bitmap,
@@ -237,8 +291,10 @@ fun TelaDesenho(
                     deslocamento = deslocamento,
                     transform = transform,
                     pinos = pinosVisiveis,
+                    tracos = tracosPagina,
+                    tracoAtual = tracoAtual,
                     aoToque = { x, y ->
-                        if (modo != ModoDesenho.Ver) {
+                        if (modo == ModoDesenho.Erro || modo == ModoDesenho.Mudanca) {
                             rascunho = PinoDesenho(
                                 id = java.util.UUID.randomUUID().toString(),
                                 pagina = pagina,
@@ -249,8 +305,16 @@ fun TelaDesenho(
                             texto = ""
                         }
                     },
+                    aoArrastar = { ponto ->
+                        if (modo == ModoDesenho.Lapis) {
+                            tracoAtual = tracoAtual + ponto
+                        }
+                    },
+                    aoSoltar = {
+                        if (modo == ModoDesenho.Lapis) fecharTraco()
+                    },
                 )
-                Box(modifier = Modifier.fillMaxWidth().height(320.dp)) {
+                Box(modifier = Modifier.fillMaxWidth().height(300.dp)) {
                     PainelApontamento(
                         quadro = quadro,
                         modo = modo,
@@ -262,6 +326,11 @@ fun TelaDesenho(
                         texto = texto,
                         aoTexto = { texto = it },
                         pinos = pinosPagina,
+                        tracosNaFolha = tracosPagina.size,
+                        aoLimparTracos = {
+                            aoAtualizarTracos(tracos.filterNot { it.pagina == pagina })
+                            tracoAtual = emptyList()
+                        },
                         aoCancelar = {
                             rascunho = null
                             texto = ""
@@ -309,14 +378,18 @@ private fun AreaPdf(
     deslocamento: Offset,
     transform: TransformableState,
     pinos: List<PinoDesenho>,
+    tracos: List<TracoDesenho>,
+    tracoAtual: List<Offset>,
     aoToque: (Float, Float) -> Unit,
+    aoArrastar: (Offset) -> Unit,
+    aoSoltar: () -> Unit,
 ) {
     val density = LocalDensity.current
     Box(
         modifier = modifier
             .clip(Forma)
-            .background(Color(0xFF2A2E36))
-            .border(1.dp, Borda, Forma)
+            .background(Branco)
+            .border(1.5.dp, Borda, Forma)
             .clipToBounds(),
         contentAlignment = Alignment.Center,
     ) {
@@ -342,10 +415,25 @@ private fun AreaPdf(
                             translationY = deslocamento.y,
                         )
                         .then(
-                            if (modo == ModoDesenho.Ver) {
-                                Modifier.transformable(state = transform)
-                            } else {
-                                Modifier.pointerInput(modo, desenhoW, desenhoH) {
+                            when (modo) {
+                                ModoDesenho.Ver -> Modifier.transformable(state = transform)
+                                ModoDesenho.Lapis -> Modifier.pointerInput(modo, desenhoW, desenhoH) {
+                                    detectDragGestures(
+                                        onDragEnd = { aoSoltar() },
+                                        onDragCancel = { aoSoltar() },
+                                    ) { change, _ ->
+                                        change.consume()
+                                        val w = size.width.toFloat().coerceAtLeast(1f)
+                                        val h = size.height.toFloat().coerceAtLeast(1f)
+                                        aoArrastar(
+                                            Offset(
+                                                (change.position.x / w).coerceIn(0f, 1f),
+                                                (change.position.y / h).coerceIn(0f, 1f),
+                                            ),
+                                        )
+                                    }
+                                }
+                                ModoDesenho.Erro, ModoDesenho.Mudanca -> Modifier.pointerInput(modo, desenhoW, desenhoH) {
                                     detectTapGestures { offset ->
                                         aoToque(
                                             (offset.x / size.width.toFloat().coerceAtLeast(1f)).coerceIn(0f, 1f),
@@ -363,44 +451,78 @@ private fun AreaPdf(
                         modifier = Modifier.fillMaxSize(),
                     )
                     Canvas(modifier = Modifier.fillMaxSize()) {
+                        fun desenharTraco(pontos: List<Offset>, cor: Color, espessura: Float) {
+                            if (pontos.size < 2) return
+                            val path = Path()
+                            path.moveTo(pontos[0].x * size.width, pontos[0].y * size.height)
+                            for (i in 1 until pontos.size) {
+                                path.lineTo(pontos[i].x * size.width, pontos[i].y * size.height)
+                            }
+                            drawPath(
+                                path = path,
+                                color = cor,
+                                style = Stroke(
+                                    width = espessura.dp.toPx(),
+                                    cap = StrokeCap.Round,
+                                    join = StrokeJoin.Round,
+                                ),
+                            )
+                        }
+                        tracos.forEach { desenharTraco(it.pontos, it.cor, it.espessura) }
+                        desenharTraco(tracoAtual, Laranja, 4f)
                         pinos.forEach { pino ->
                             val cor = when (pino.tipo) {
                                 ModoDesenho.Erro -> Vermelho
                                 ModoDesenho.Mudanca -> Azul
-                                ModoDesenho.Ver -> Amarelo
+                                ModoDesenho.Lapis -> Laranja
+                                ModoDesenho.Ver -> Laranja
                             }
                             val centro = Offset(size.width * pino.x, size.height * pino.y)
-                            drawCircle(color = cor.copy(alpha = 0.25f), radius = 28f, center = centro)
-                            drawCircle(color = cor, radius = 14f, center = centro)
+                            drawCircle(color = cor.copy(alpha = 0.22f), radius = 30f, center = centro)
+                            drawCircle(color = cor, radius = 15f, center = centro)
                             drawCircle(color = Branco, radius = 5f, center = centro)
                         }
                     }
                 }
             }
             Text(
-                if (modo == ModoDesenho.Ver) {
-                    "Pinça para zoom · arraste para mover"
-                } else {
-                    "Zoom volta a 100% · toque no ponto do desenho"
+                when (modo) {
+                    ModoDesenho.Ver -> "Pinça para zoom · arraste para mover"
+                    ModoDesenho.Lapis -> "Arraste o dedo para desenhar em laranja"
+                    else -> "Toque no ponto do desenho para marcar"
                 },
-                color = Branco.copy(alpha = 0.85f),
+                color = Preto,
                 fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(12.dp)
                     .clip(FormaPequena)
-                    .background(Preto.copy(alpha = 0.55f))
+                    .background(LaranjaSuave)
+                    .border(1.dp, Borda, FormaPequena)
                     .padding(horizontal = 12.dp, vertical = 6.dp),
             )
         } else {
             Column(
-                modifier = Modifier.fillMaxSize().padding(24.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(LaranjaSuave)
+                    .padding(24.dp),
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text(falha.ifBlank { "Sem PDF" }, color = Branco, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    falha.ifBlank { "Sem PDF" },
+                    color = Preto,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                )
                 Spacer(Modifier.height(8.dp))
-                Text("Quando o arquivo chegar, o desenho abre aqui.", color = Branco.copy(alpha = 0.8f), fontSize = 15.sp)
+                Text(
+                    "Volte em Projetos e toque em Atualizar para puxar o PDF da engenharia.",
+                    color = Cinza,
+                    fontSize = 15.sp,
+                )
             }
         }
     }
@@ -418,6 +540,8 @@ private fun PainelApontamento(
     texto: String,
     aoTexto: (String) -> Unit,
     pinos: List<PinoDesenho>,
+    tracosNaFolha: Int,
+    aoLimparTracos: () -> Unit,
     aoCancelar: () -> Unit,
     aoEnviar: () -> Unit,
     aoFoto: () -> Unit,
@@ -428,7 +552,7 @@ private fun PainelApontamento(
             .fillMaxSize()
             .clip(Forma)
             .background(Branco)
-            .border(1.dp, Borda, Forma)
+            .border(1.5.dp, Borda, Forma)
             .padding(16.dp)
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -436,8 +560,8 @@ private fun PainelApontamento(
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(quadro.codigo, color = Preto, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
             SeloTexto(
-                if (quadro.vigenteCodigo.isNotBlank()) "Rev ${quadro.vigenteCodigo}" else "Sem vigente",
-                quadro.vigenteCodigo.isNotBlank(),
+                if (quadro.vigenteCodigo.isNotBlank()) "Rev ${quadro.vigenteCodigo}" else "PDF da pasta",
+                quadro.arquivoId.isNotBlank(),
             )
         }
         Text("Folha ${pagina + 1} de ${max(folhas, 1)}", color = Cinza, fontSize = 14.sp)
@@ -445,14 +569,28 @@ private fun PainelApontamento(
             Box(Modifier.weight(1f)) { Botao("Anterior", preenchido = false, enabled = pagina > 0) { aoPagina(pagina - 1) } }
             Box(Modifier.weight(1f)) { Botao("Próxima", preenchido = false, enabled = pagina + 1 < folhas) { aoPagina(pagina + 1) } }
         }
-        Text("Modo", color = Cinza, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Text("Ferramentas", color = Cinza, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         Row(
             modifier = Modifier.horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Chip("Ver", modo == ModoDesenho.Ver, Amarelo) { aoModo(ModoDesenho.Ver) }
+            Chip("Ver", modo == ModoDesenho.Ver, Laranja) { aoModo(ModoDesenho.Ver) }
+            Chip("Desenhar", modo == ModoDesenho.Lapis, Laranja) { aoModo(ModoDesenho.Lapis) }
             Chip("Erro", modo == ModoDesenho.Erro, Vermelho) { aoModo(ModoDesenho.Erro) }
             Chip("Mudança", modo == ModoDesenho.Mudanca, Azul) { aoModo(ModoDesenho.Mudanca) }
+        }
+        if (tracosNaFolha > 0 || modo == ModoDesenho.Lapis) {
+            Cartao {
+                Text(
+                    if (tracosNaFolha > 0) "$tracosNaFolha traço(s) nesta folha" else "Desenhe com o dedo sobre o PDF",
+                    color = Preto,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                if (tracosNaFolha > 0) {
+                    Botao("Apagar desenhos desta folha", preenchido = false, cor = Cinza, aoClicar = aoLimparTracos)
+                }
+            }
         }
         if (rascunho != null) {
             Cartao {
@@ -463,12 +601,12 @@ private fun PainelApontamento(
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    "Folha ${rascunho.pagina + 1} · marca em ${(rascunho.x * 100).toInt()}%, ${(rascunho.y * 100).toInt()}%",
+                    "Folha ${rascunho.pagina + 1} · ${(rascunho.x * 100).toInt()}%, ${(rascunho.y * 100).toInt()}%",
                     color = Cinza,
                     fontSize = 13.sp,
                 )
                 Campo("Descreva para a engenharia", texto, linhas = 4, aoMudar = aoTexto)
-                Botao("Enviar à engenharia", enabled = texto.trim().isNotBlank(), cor = Preto, aoClicar = aoEnviar)
+                Botao("Enviar à engenharia", enabled = texto.trim().isNotBlank(), aoClicar = aoEnviar)
                 Botao("Enviar com foto", enabled = texto.trim().isNotBlank(), preenchido = false, aoClicar = aoFoto)
                 Botao("Cancelar marca", preenchido = false, cor = Cinza, aoClicar = aoCancelar)
             }
@@ -477,7 +615,8 @@ private fun PainelApontamento(
                 Text(
                     when (modo) {
                         ModoDesenho.Ver -> "Navegue no desenho"
-                        ModoDesenho.Erro -> "Toque onde está o erro"
+                        ModoDesenho.Lapis -> "Modo desenho livre"
+                        ModoDesenho.Erro -> "Toque no ponto do erro"
                         ModoDesenho.Mudanca -> "Toque onde precisa mudar"
                     },
                     color = Preto,
@@ -485,7 +624,11 @@ private fun PainelApontamento(
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    "O apontamento sobe para a engenharia avaliar. Não altera a vigente sozinho.",
+                    when (modo) {
+                        ModoDesenho.Ver -> "Use Desenhar para rabiscar, ou Erro/Mudança para mandar à engenharia."
+                        ModoDesenho.Lapis -> "O traço fica no tablet para marcar o que viu na montagem."
+                        else -> "O apontamento sobe para a engenharia avaliar. Não altera a vigente sozinho."
+                    },
                     color = Cinza,
                     fontSize = 14.sp,
                 )
@@ -498,7 +641,7 @@ private fun PainelApontamento(
                     Text(
                         if (pino.tipo == ModoDesenho.Erro) "Erro" else "Mudança",
                         color = if (pino.tipo == ModoDesenho.Erro) Vermelho else Azul,
-                        fontSize = 14.sp,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                     )
                     Text(pino.texto.ifBlank { "Sem texto" }, color = Preto, fontSize = 15.sp)

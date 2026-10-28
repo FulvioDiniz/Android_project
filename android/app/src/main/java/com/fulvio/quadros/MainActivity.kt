@@ -51,6 +51,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -61,11 +62,11 @@ import java.time.format.DateTimeFormatter
 
 private val Etapas = listOf(
     "estrutura" to "Estrutura",
-    "mecanica" to "Mecânica",
-    "fiacao" to "Fiação",
-    "identificacao" to "Identificação",
+    "mecanica" to "Mecanica",
+    "fiacao" to "Fiacao",
+    "identificacao" to "Identificacao",
     "teste" to "Teste",
-    "expedicao" to "Expedição",
+    "expedicao" to "Expedicao",
 )
 
 private enum class Aba(val rotulo: String) {
@@ -82,8 +83,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme(
                 colorScheme = lightColorScheme(
-                    primary = Preto,
+                    primary = Laranja,
                     onPrimary = Branco,
+                    secondary = Laranja,
                     background = Fundo,
                     surface = Branco,
                     onBackground = Preto,
@@ -120,6 +122,8 @@ private fun Tela(dao: QuadroDao) {
     var fila by remember { mutableStateOf(dao.listarFila()) }
     var versao by remember { mutableIntStateOf(0) }
     var pinos by remember { mutableStateOf<Map<String, List<PinoDesenho>>>(emptyMap()) }
+    var tracos by remember { mutableStateOf<Map<String, List<TracoDesenho>>>(emptyMap()) }
+    var statusSync by remember { mutableStateOf("") }
     val offline = token.isNotBlank() && enlace == "Sem enlace"
 
     fun recarregar() {
@@ -138,19 +142,29 @@ private fun Tela(dao: QuadroDao) {
     fun ciclo(base: String, acesso: String) {
         escopo.launch {
             val pasta = contexto.filesDir
+            statusSync = "Sincronizando projetos..."
+            enlace = "Sincronizando"
             withContext(Dispatchers.IO) { drenarFila(dao) }
             try {
                 val lista = withContext(Dispatchers.IO) { baixarQuadros(base, acesso) }
+                var baixados = 0
+                for (quadro in lista) {
+                    if (quadro.arquivoId.isBlank()) continue
+                    statusSync = "Baixando PDF de ${quadro.codigo}..."
+                    val ok = withContext(Dispatchers.IO) {
+                        runCatching {
+                            copiarPdfSeFaltar(dao, base, acesso, quadro.arquivoId, pasta)
+                            true
+                        }.getOrDefault(false)
+                    }
+                    if (ok) baixados += 1
+                }
                 withContext(Dispatchers.IO) {
                     dao.limpar()
                     dao.salvar(lista)
                     dao.gravar(Meta("servidor", base))
                     dao.gravar(Meta("token", acesso))
                     dao.gravar(Meta("sync", Instant.now().toString()))
-                    lista.forEach { quadro ->
-                        if (quadro.arquivoId.isBlank()) return@forEach
-                        runCatching { copiarPdfSeFaltar(dao, base, acesso, quadro.arquivoId, pasta) }
-                    }
                     runCatching { baixarDiario(base, acesso) }.onSuccess { notas ->
                         dao.limparDiario()
                         if (notas.isNotEmpty()) dao.salvarDiario(notas)
@@ -160,14 +174,16 @@ private fun Tela(dao: QuadroDao) {
                     }.getOrDefault(org.json.JSONArray())
                     if (avisos.length() > 0) {
                         dao.gravar(Meta("marco", avisos.getJSONObject(avisos.length() - 1).getString("criada_em")))
-                        dao.gravar(Meta("alerta", "Revisão nova. Confira a vigente antes de seguir."))
+                        dao.gravar(Meta("alerta", "Revisao nova. Confira a vigente antes de seguir."))
                     }
                 }
+                statusSync = "${lista.size} projeto(s) · $baixados PDF pronto(s)"
                 enlace = "No ar"
                 erro = ""
             } catch (falha: Exception) {
                 enlace = "Sem enlace"
                 erro = falha.message ?: "Sem enlace"
+                statusSync = "Falha na sync"
             }
             recarregar()
             agendarFila(contexto)
@@ -182,7 +198,7 @@ private fun Tela(dao: QuadroDao) {
     }
 
     fun textoApontamento(pino: PinoDesenho, mensagem: String): String {
-        val tipo = if (pino.tipo == ModoDesenho.Erro) "ERRO" else "MUDANÇA"
+        val tipo = if (pino.tipo == ModoDesenho.Erro) "ERRO" else "MUDANCA"
         return "[$tipo] Folha ${pino.pagina + 1} · marca ${(pino.x * 100).toInt()}% x ${(pino.y * 100).toInt()}%\n$mensagem"
     }
 
@@ -229,6 +245,10 @@ private fun Tela(dao: QuadroDao) {
         if (token.isNotBlank()) {
             agendarFila(contexto)
             ciclo(servidor, token)
+            while (true) {
+                delay(45_000)
+                if (token.isNotBlank()) ciclo(servidor, token)
+            }
         }
     }
 
@@ -256,7 +276,7 @@ private fun Tela(dao: QuadroDao) {
                             erro = ""
                             enlace = "Sincronizando"
                         } catch (falha: Exception) {
-                            erro = falha.message ?: "Não entrou"
+                            erro = falha.message ?: "Nao entrou"
                             enlace = "Sem enlace"
                         }
                     }
@@ -274,6 +294,7 @@ private fun Tela(dao: QuadroDao) {
                         nome = nome,
                         offline = offline,
                         enlace = enlace,
+                        statusSync = statusSync,
                         dao = dao,
                         versao = versao,
                         aoBusca = { busca = it },
@@ -293,8 +314,12 @@ private fun Tela(dao: QuadroDao) {
                     aba == Aba.Desenho -> TelaDesenho(
                         quadro = aberto!!,
                         pinos = pinos[aberto!!.id].orEmpty(),
+                        tracos = tracos[aberto!!.id].orEmpty(),
                         aoAtualizarPinos = { novos ->
                             pinos = pinos + (aberto!!.id to novos)
+                        },
+                        aoAtualizarTracos = { novos ->
+                            tracos = tracos + (aberto!!.id to novos)
                         },
                         aoEnviar = { pino, mensagem ->
                             enviarApontamento(aberto!!, pino, mensagem)
@@ -362,7 +387,12 @@ private fun Login(
     aoSenha: (String) -> Unit,
     aoEntrar: () -> Unit,
 ) {
-    BoxWithConstraints(modifier = Modifier.fillMaxSize().padding(24.dp)) {
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(GradienteMarca)
+            .padding(24.dp),
+    ) {
         val largo = maxWidth >= 720.dp
         Column(
             modifier = Modifier
@@ -372,14 +402,18 @@ private fun Login(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text("Quadros", color = Preto, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            Text("Montagem em produção", color = Preto, fontSize = 34.sp, fontWeight = FontWeight.Bold)
-            Text("Abra o desenho, marque erros ou mudanças e envie para a engenharia.", color = Cinza, fontSize = 16.sp)
+            Text("QUADROS", color = Laranja, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Text("Montagem em producao", color = Preto, fontSize = 34.sp, fontWeight = FontWeight.Bold)
+            Text(
+                "Projetos da engenharia chegam na sync. Abra o PDF, desenhe, marque erros e mande.",
+                color = Cinza,
+                fontSize = 16.sp,
+            )
             Cartao {
                 Campo("Servidor", servidor, aoMudar = aoServidor)
                 Campo("Login", login, aoMudar = aoLogin)
                 Campo("Senha", senha, senha = true, aoMudar = aoSenha)
-                Botao("Entrar", aoClicar = aoEntrar)
+                Botao("Entrar e puxar projetos", aoClicar = aoEntrar)
                 if (erro.isNotBlank()) {
                     Text(erro, color = Vermelho, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                 }
@@ -395,6 +429,7 @@ private fun ListaProjetos(
     nome: String,
     offline: Boolean,
     enlace: String,
+    statusSync: String,
     dao: QuadroDao,
     versao: Int,
     aoBusca: (String) -> Unit,
@@ -416,12 +451,15 @@ private fun ListaProjetos(
                     color = Cinza,
                     fontSize = 14.sp,
                 )
+                if (statusSync.isNotBlank()) {
+                    Text(statusSync, color = Laranja, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
             }
-            Text("${quadros.size}", color = Cinza, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Text("${quadros.size}", color = Laranja, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         }
-        Campo("Buscar código, OP ou cliente", busca, aoMudar = aoBusca)
+        Campo("Buscar codigo, OP ou cliente", busca, aoMudar = aoBusca)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Box(Modifier.weight(1f)) { Botao("Atualizar", preenchido = false, aoClicar = aoAtualizar) }
+            Box(Modifier.weight(1f)) { Botao("Atualizar projetos", aoClicar = aoAtualizar) }
             Box(Modifier.weight(1f)) { Botao("Sair", preenchido = false, cor = Cinza, aoClicar = aoSair) }
         }
         if (visiveis.isEmpty()) {
@@ -434,7 +472,7 @@ private fun ListaProjetos(
                 )
                 Text(
                     if (quadros.isEmpty()) {
-                        "Quando a engenharia indicar o caminho e o PDF entrar, o card aparece aqui."
+                        "Toque em Atualizar. Os projetos das abas de engenharia entram com o PDF mais recente."
                     } else {
                         "Tente outro termo de busca."
                     },
@@ -467,27 +505,34 @@ private fun CartaoProjeto(quadro: QuadroLocal, etapa: String, aoAbrir: () -> Uni
             .fillMaxWidth()
             .clip(Forma)
             .background(Branco)
-            .border(1.dp, Borda, Forma)
+            .border(1.5.dp, Borda, Forma)
             .clickable(onClick = aoAbrir)
             .padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(FormaSelo)
+                .background(Laranja),
+        )
         Text(quadro.codigo, color = Preto, fontSize = 24.sp, fontWeight = FontWeight.Bold)
         SeloTexto(
             when {
                 quadro.vigenteCodigo.isNotBlank() -> "Rev ${quadro.vigenteCodigo}"
-                quadro.arquivoId.isNotBlank() -> "PDF disponível"
+                quadro.arquivoId.isNotBlank() -> "PDF disponivel"
                 else -> "Sem PDF"
             },
             quadro.vigenteCodigo.isNotBlank() || quadro.arquivoId.isNotBlank(),
         )
         Text(
-            "${quadro.clienteNome.ifBlank { "Sem cliente" }} · OP ${quadro.ordemNumero.ifBlank { "—" }}",
+            "${quadro.clienteNome.ifBlank { "Sem cliente" }} · OP ${quadro.ordemNumero.ifBlank { "-" }}",
             color = Cinza,
             fontSize = 14.sp,
         )
         Text("Etapa $etapa", color = Preto, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-        Text("Abrir desenho →", color = Amarelo, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        Text("Abrir desenho ->", color = Laranja, fontSize = 15.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -510,21 +555,25 @@ private fun TelaApontamentos(
     ) {
         Text("Apontamentos", color = Preto, fontSize = 28.sp, fontWeight = FontWeight.Bold)
         Text(quadro.codigo, color = Cinza, fontSize = 15.sp)
-        Botao("Marcar no desenho", cor = Preto, aoClicar = aoDesenho)
+        Botao("Marcar / desenhar no PDF", aoClicar = aoDesenho)
         if (locais.isEmpty() && notas.isEmpty() && pinos.none { it.enviado }) {
             Cartao {
                 Text("Nenhum apontamento ainda", color = Preto, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Text("No desenho, escolha Erro ou Mudança, toque no ponto e envie para a engenharia.", color = Cinza, fontSize = 14.sp)
+                Text(
+                    "No desenho, use Desenhar, Erro ou Mudanca e envie para a engenharia.",
+                    color = Cinza,
+                    fontSize = 14.sp,
+                )
             }
         }
         locais.forEach { item ->
             Cartao {
                 Text(
                     when (item.tipo) {
-                        "duvida" -> "Enviado à engenharia"
+                        "duvida" -> "Enviado a engenharia"
                         "foto" -> "Foto anexada"
-                        "pendencia" -> "Pendência"
-                        else -> "Observação"
+                        "pendencia" -> "Pendencia"
+                        else -> "Observacao"
                     },
                     color = Preto,
                     fontSize = 15.sp,
@@ -537,7 +586,7 @@ private fun TelaApontamentos(
         pinos.filter { it.enviado }.forEach { pino ->
             Cartao {
                 Text(
-                    if (pino.tipo == ModoDesenho.Erro) "Erro · folha ${pino.pagina + 1}" else "Mudança · folha ${pino.pagina + 1}",
+                    if (pino.tipo == ModoDesenho.Erro) "Erro · folha ${pino.pagina + 1}" else "Mudanca · folha ${pino.pagina + 1}",
                     color = if (pino.tipo == ModoDesenho.Erro) Vermelho else Azul,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
@@ -591,7 +640,7 @@ private fun TelaOficina(
             Text("Sync: ${horaLegivel(sync)}", color = Cinza, fontSize = 14.sp)
             Text(
                 when {
-                    quadro.vigenteId.isBlank() -> "Sem vigência publicada"
+                    quadro.vigenteId.isBlank() -> "Sem vigencia publicada"
                     confirmadaAgora -> "Leitura confirmada"
                     else -> "Leitura pendente"
                 },
@@ -609,13 +658,13 @@ private fun TelaOficina(
         Cartao {
             Text("Etapas", color = Preto, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             if (trava) {
-                Text("Confirme a leitura da vigente antes de avançar a etapa.", color = Vermelho, fontSize = 14.sp)
+                Text("Confirme a leitura da vigente antes de avancar a etapa.", color = Vermelho, fontSize = 14.sp)
             }
             Etapas.forEach { (codigo, nome) ->
                 Chip(
                     "$nome · ${rotuloDaEtapa(dao, fila, quadro.id, codigo, versao)}",
                     codigo == etapaCodigo,
-                    Amarelo,
+                    Laranja,
                 ) { etapaCodigo = codigo }
                 Spacer(Modifier.height(6.dp))
             }
@@ -633,13 +682,13 @@ private fun TelaOficina(
             }
         }
         Cartao {
-            Text("Pendência rápida", color = Preto, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            Campo("Descrição", texto, linhas = 3) { texto = it }
+            Text("Pendencia rapida", color = Preto, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Campo("Descricao", texto, linhas = 3) { texto = it }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Chip("Bloqueia etapa", bloqueia, Vermelho) { bloqueia = true }
-                Chip("Não bloqueia", !bloqueia, Verde) { bloqueia = false }
+                Chip("Nao bloqueia", !bloqueia, Verde) { bloqueia = false }
             }
-            Botao("Abrir pendência", enabled = texto.trim().isNotBlank(), preenchido = false) {
+            Botao("Abrir pendencia", enabled = texto.trim().isNotBlank(), preenchido = false) {
                 val anotacao = texto.trim()
                 texto = ""
                 aoEnfileirar(
@@ -674,7 +723,8 @@ private fun Barra(aba: Aba, temProjeto: Boolean, aoEscolher: (Aba) -> Unit) {
                     .weight(1f)
                     .height(72.dp)
                     .clip(FormaPequena)
-                    .background(if (ativa) Amarelo else Branco)
+                    .background(if (ativa) LaranjaSuave else Branco)
+                    .then(if (ativa) Modifier.border(1.5.dp, Laranja, FormaPequena) else Modifier)
                     .clickable(enabled = liberada) { aoEscolher(item) },
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
@@ -757,7 +807,7 @@ private fun rotuloDaEtapa(dao: QuadroDao, fila: List<FilaLocal>, quadroId: Strin
     val estado = dao.ler("etapa:$quadroId:$codigo")
     val movimentos = fila.filter { it.quadroId == quadroId && it.etapaCodigo == codigo && it.tipo.startsWith("etapa_") }
     return when {
-        estado == "concluida" -> "concluída"
+        estado == "concluida" -> "concluida"
         movimentos.any { it.estado == "na_fila" } -> "na fila"
         estado == "em_andamento" -> "em andamento"
         else -> rotuloEtapa(false, false, movimentos.lastOrNull())
