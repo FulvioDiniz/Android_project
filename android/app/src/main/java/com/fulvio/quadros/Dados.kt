@@ -243,6 +243,8 @@ fun baixarPdf(base: String, token: String, arquivoId: String, destino: File) {
     var total = Long.MAX_VALUE
     while (offset < total) {
         val conexao = URL(base.trimEnd('/') + "/api/arquivos/$arquivoId").openConnection() as HttpURLConnection
+        conexao.connectTimeout = 20000
+        conexao.readTimeout = 120000
         conexao.setRequestProperty("Authorization", "Bearer $token")
         conexao.setRequestProperty("Range", "bytes=$offset-")
         val codigo = conexao.responseCode
@@ -278,7 +280,7 @@ fun copiarPdfSeFaltar(
     val destino = File(pasta, "$arquivoId.pdf")
     val marca = dao.ler("pdfquando:$arquivoId").orEmpty()
     val mesmo = arquivoEm.isNotBlank() && marca == arquivoEm && destino.exists() && destino.length() > 0L
-    val legado = arquivoEm.isBlank() && dao.ler("pdf:$arquivoId") == "ok" && destino.exists()
+    val legado = arquivoEm.isBlank() && dao.ler("pdf:$arquivoId") == "ok" && destino.exists() && destino.length() > 0L
     if (mesmo || legado) return
     if (destino.exists()) destino.delete()
     baixarPdf(base, token, arquivoId, destino)

@@ -397,6 +397,18 @@ private fun Tela(dao: QuadroDao) {
                             aberto = null
                             aba = Aba.Projetos
                         },
+                        aoGarantirPdf = { alvo ->
+                            withContext(Dispatchers.IO) {
+                                copiarPdfSeFaltar(
+                                    dao,
+                                    servidor,
+                                    token,
+                                    alvo.arquivoId,
+                                    contexto.filesDir,
+                                    alvo.arquivoEm,
+                                )
+                            }
+                        },
                     )
                     aba == Aba.Apontar -> TelaApontamentos(
                         quadro = aberto!!,

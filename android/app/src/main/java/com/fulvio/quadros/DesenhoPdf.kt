@@ -92,6 +92,7 @@ fun TelaDesenho(
     aoEnviar: (PinoDesenho?, String, List<TracoDesenho>) -> Unit,
     aoFoto: (PinoDesenho, String) -> Unit,
     aoVoltar: () -> Unit,
+    aoGarantirPdf: suspend (QuadroLocal) -> Unit,
 ) {
     val contexto = LocalContext.current
     var pagina by remember(quadro.id, quadro.arquivoId) { mutableIntStateOf(0) }
@@ -135,18 +136,25 @@ fun TelaDesenho(
 
     LaunchedEffect(quadro.id, quadro.arquivoId, quadro.arquivoEm, pagina) {
         val local = File(contexto.filesDir, "${quadro.arquivoId}.pdf")
-        if (quadro.arquivoId.isNotBlank() && local.exists() && local.length() > 0L) {
-            runCatching { renderizar(local) }
-                .onSuccess { falha = "" }
-                .onFailure { falha = it.message ?: "PDF não abriu" }
-        } else {
+        if (quadro.arquivoId.isBlank()) {
             val anterior = bitmap
             bitmap = null
             if (anterior != null && !anterior.isRecycled) anterior.recycle()
-            falha = if (quadro.arquivoId.isBlank()) {
-                "Este projeto ainda não tem PDF na engenharia."
+            falha = "Este projeto ainda não tem PDF na engenharia."
+        } else {
+            if (!local.exists() || local.length() == 0L) {
+                falha = "Baixando o PDF…"
+            }
+            val erro = runCatching { aoGarantirPdf(quadro) }.exceptionOrNull()
+            if (erro != null || !local.exists() || local.length() == 0L) {
+                val anterior = bitmap
+                bitmap = null
+                if (anterior != null && !anterior.isRecycled) anterior.recycle()
+                falha = erro?.message ?: "O PDF não chegou. Toque em voltar e abra de novo."
             } else {
-                "Baixando o PDF… atualize a lista se demorar."
+                runCatching { renderizar(local) }
+                    .onSuccess { falha = "" }
+                    .onFailure { falha = it.message ?: "PDF não abriu" }
             }
         }
         escala = 1f
