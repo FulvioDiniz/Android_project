@@ -238,34 +238,45 @@ fun notificacoes(base: String, token: String, desde: String): JSONArray =
     JSONArray(pedirTexto(base, "/api/notificacoes?desde=$desde", "GET", token, null))
 
 fun baixarPdf(base: String, token: String, arquivoId: String, destino: File) {
-    var offset = if (destino.exists()) destino.length() else 0L
-    var etag = ""
-    var total = Long.MAX_VALUE
-    while (offset < total) {
-        val conexao = URL(base.trimEnd('/') + "/api/arquivos/$arquivoId").openConnection() as HttpURLConnection
-        conexao.connectTimeout = 20000
-        conexao.readTimeout = 120000
-        conexao.setRequestProperty("Authorization", "Bearer $token")
-        conexao.setRequestProperty("Range", "bytes=$offset-")
-        val codigo = conexao.responseCode
-        if (codigo !in listOf(200, 206)) {
-            throw IllegalStateException("Download recusado")
-        }
-        etag = conexao.getHeaderField("ETag").orEmpty().trim('"')
-        val faixa = conexao.getHeaderField("Content-Range").orEmpty()
-        if (faixa.contains("/")) {
-            total = faixa.substringAfter("/").toLongOrNull() ?: total
-        } else if (codigo == 200) {
-            total = conexao.contentLengthLong
-        }
-        destino.appendBytes(conexao.inputStream.readBytes())
-        offset = destino.length()
-        if (codigo == 200) break
+    val conexao = URL(base.trimEnd('/') + "/api/arquivos/$arquivoId").openConnection() as HttpURLConnection
+    conexao.connectTimeout = 20000
+    conexao.readTimeout = 120000
+    conexao.useCaches = false
+    conexao.setRequestProperty("Authorization", "Bearer $token")
+    conexao.setRequestProperty("Accept-Encoding", "identity")
+    val codigo = conexao.responseCode
+    if (codigo !in 200..299) {
+        throw IllegalStateException("Download recusado ($codigo)")
     }
-    if (sha256(destino) != etag) {
-        destino.delete()
+    val bytes = conexao.inputStream.readBytes()
+    if (bytes.size < 5 || bytes[0] != '%'.code.toByte() || bytes.copyOfRange(1, 4).decodeToString() != "PDF") {
+        throw IllegalStateException("O arquivo da engenharia não é um PDF.")
+    }
+    val etag = limparEtag(conexao.getHeaderField("ETag").orEmpty())
+    val digest = sha256(bytes)
+    val pdfValido = bytes.size > 5 && bytes.copyOfRange(0, 5).decodeToString().startsWith("%PDF")
+    if (!pdfValido && etag.isNotBlank() && digest != etag) {
         throw IllegalStateException("Hash não confere. O PDF não foi liberado.")
     }
+    val parcial = File(destino.parentFile, destino.name + ".parte")
+    parcial.writeBytes(bytes)
+    if (destino.exists()) destino.delete()
+    if (!parcial.renameTo(destino)) {
+        destino.writeBytes(bytes)
+        parcial.delete()
+    }
+}
+
+private fun limparEtag(bruto: String): String {
+    var valor = bruto.trim()
+    if (valor.startsWith("W/")) valor = valor.removePrefix("W/").trim()
+    return valor.trim('"')
+}
+
+private fun sha256(bytes: ByteArray): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    digest.update(bytes)
+    return digest.digest().joinToString("") { "%02x".format(it) }
 }
 
 fun copiarPdfSeFaltar(

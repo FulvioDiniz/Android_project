@@ -500,8 +500,11 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
                         "SELECT area FROM arquivo WHERE id = ?",
                         (arquivo_id,),
                     ).fetchone()
-                    if guardado and (app.state.arquivos / guardado["area"] / arquivo_id).is_file():
-                        vivos.append(dados)
+                    caminho = app.state.arquivos / guardado["area"] / arquivo_id if guardado else None
+                    if caminho is not None and caminho.is_file() and caminho.stat().st_size > 5:
+                        with caminho.open("rb") as entrada:
+                            if entrada.read(5).startswith(b"%PDF-"):
+                                vivos.append(dados)
                 rows = vivos
             else:
                 rows = [dict(row) for row in rows]
