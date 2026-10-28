@@ -62,6 +62,31 @@ def _marcar_relogio(conn: sqlite3.Connection, dispositivo_id: str, ocorrido_em: 
     )
 
 
+
+def _mensagens_da_obs(conn, observacao_id: str) -> list[dict]:
+    rows = conn.execute(
+        """SELECT m.id, m.perfil, m.texto, m.criado_em, u.nome AS usuario
+           FROM observacao_mensagem m
+           JOIN usuario u ON u.id = m.usuario_id
+           WHERE m.observacao_id = ?
+           ORDER BY m.criado_em""",
+        (observacao_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def _gravar_mensagem(conn, observacao_id: str, usuario_id: str, perfil: str, texto: str, momento: str | None = None) -> dict:
+    mid = str(uuid.uuid4())
+    quando = momento or agora()
+    conn.execute(
+        """INSERT INTO observacao_mensagem
+           (id, observacao_id, usuario_id, perfil, texto, criado_em)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (mid, observacao_id, usuario_id, perfil, texto, quando),
+    )
+    return {"id": mid, "perfil": perfil, "texto": texto, "criado_em": quando}
+
+
 def _observacao(conn, sessao, corpo, operacao_id: str, digest: str, tipo: str = "observacao") -> JSONResponse:
     texto = str(corpo.get("texto") or "").strip()
     quadro_id = str(corpo.get("quadro_id") or "")
@@ -74,10 +99,11 @@ def _observacao(conn, sessao, corpo, operacao_id: str, digest: str, tipo: str = 
     obs_id = str(uuid.uuid4())
     conn.execute(
         """INSERT INTO observacao
-           (id, quadro_id, revisao_id, tipo, texto, usuario_id, dispositivo_id, operacao_id, ocorrido_em, recebido_em)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           (id, quadro_id, revisao_id, tipo, texto, usuario_id, dispositivo_id, operacao_id, ocorrido_em, recebido_em, estado)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'aberta')""",
         (obs_id, quadro_id, corpo.get("revisao_id"), tipo, texto, sessao["usuario_id"], sessao["dispositivo_id"], operacao_id, ocorrido, recebido),
     )
+    _gravar_mensagem(conn, obs_id, sessao["usuario_id"], sessao["perfil"], texto, ocorrido)
     conn.execute(
         """INSERT INTO operacao_sincronizacao
            (operacao_id, dispositivo_id, usuario_id, tipo, payload_hash, resultado_http, erro_codigo, recurso_id, recebido_em)
@@ -101,9 +127,11 @@ def _observacao(conn, sessao, corpo, operacao_id: str, digest: str, tipo: str = 
             "tipo": tipo,
             "texto": texto,
             "resposta": None,
+            "estado": "aberta",
             "ocorrido_em": ocorrido,
             "status": "aceita",
             "revisao_vigente_id": ponteiro,
+            "mensagens": _mensagens_da_obs(conn, obs_id),
         },
         status_code=201,
     )
@@ -1696,24 +1724,46 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
         return JSONResponse([dict(row) for row in rows])
 
     @app.get("/api/observacoes")
-    def listar_observacoes(request: Request, tipo: str = "") -> JSONResponse:
+    def listar_observacoes(request: Request, tipo: str = "", estado: str = "") -> JSONResponse:
         with db() as conn:
             sessao = exigir(request, conn)
             if isinstance(sessao, JSONResponse):
                 return sessao
             rows = conn.execute(
                 """SELECT o.id, o.quadro_id, q.codigo AS quadro_codigo, o.tipo, o.texto, o.resposta,
+                          coalesce(o.estado, 'aberta') AS estado,
                           o.ocorrido_em, o.respondida_em, u.nome AS usuario
                    FROM observacao o
                    JOIN quadro q ON q.id = o.quadro_id
                    JOIN usuario u ON u.id = o.usuario_id
                    WHERE (? = '' OR o.tipo = ?)
+                     AND (? = '' OR coalesce(o.estado, 'aberta') = ?)
                    ORDER BY o.recebido_em""",
-                (tipo, tipo),
+                (tipo, tipo, estado, estado),
             ).fetchall()
             saida = []
             for row in rows:
                 item = dict(row)
+                item["mensagens"] = _mensagens_da_obs(conn, row["id"])
+                if not item["mensagens"] and item.get("texto"):
+                    item["mensagens"] = [{
+                        "id": row["id"] + "-origem",
+                        "perfil": "montagem",
+                        "texto": item["texto"],
+                        "criado_em": item["ocorrido_em"],
+                        "usuario": item["usuario"],
+                    }]
+                if item.get("resposta") and not any(
+                    m.get("texto") == item["resposta"] and m.get("perfil") == "engenharia"
+                    for m in item["mensagens"]
+                ):
+                    item["mensagens"].append({
+                        "id": row["id"] + "-resp",
+                        "perfil": "engenharia",
+                        "texto": item["resposta"],
+                        "criado_em": item.get("respondida_em") or item["ocorrido_em"],
+                        "usuario": "Engenharia",
+                    })
                 item["fotos"] = [
                     {
                         "id": foto["id"],
@@ -1757,6 +1807,8 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
                    WHERE id = ?""",
                 (resposta, sessao["usuario_id"], momento, observacao_id),
             )
+            msg = _gravar_mensagem(conn, observacao_id, sessao["usuario_id"], "engenharia", resposta, momento)
+            mensagens = _mensagens_da_obs(conn, observacao_id)
             conn.execute(
                 """INSERT INTO evento_auditoria
                    (ocorrido_em, ator_usuario_id, ator_dispositivo_id, acao, entidade, entidade_id, quadro_id, operacao_id, detalhe)
@@ -1764,7 +1816,81 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
                 (momento, sessao["usuario_id"], observacao_id, obs["quadro_id"]),
             )
             conn.commit()
-        return JSONResponse({"id": observacao_id, "resposta": resposta, "respondida_em": momento})
+        return JSONResponse({
+            "id": observacao_id,
+            "resposta": resposta,
+            "respondida_em": momento,
+            "estado": "aberta",
+            "mensagem": msg,
+            "mensagens": mensagens,
+        })
+
+    @app.post("/api/observacoes/{observacao_id}/mensagens")
+    def mensagem_observacao(observacao_id: str, corpo: dict[str, Any], request: Request) -> JSONResponse:
+        texto = str(corpo.get("texto") or corpo.get("mensagem") or "").strip()
+        if not texto:
+            return erro(422, "pedido_invalido", "Informe a mensagem.")
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            if sessao["perfil"] not in ("engenharia", "montagem", "supervisao", "admin"):
+                return erro(403, "perfil_insuficiente", "Perfil sem acesso ao bate-papo.")
+            obs = conn.execute("SELECT * FROM observacao WHERE id = ?", (observacao_id,)).fetchone()
+            if obs is None:
+                return erro(404, "nao_encontrado", "Apontamento não encontrado.")
+            if (obs["estado"] if "estado" in obs.keys() else "aberta") == "resolvida":
+                return erro(409, "ja_resolvido", "Este apontamento já foi resolvido.")
+            momento = agora()
+            perfil = "engenharia" if sessao["perfil"] in ("engenharia", "supervisao", "admin") else "montagem"
+            msg = _gravar_mensagem(conn, observacao_id, sessao["usuario_id"], perfil, texto, momento)
+            if perfil == "engenharia":
+                conn.execute(
+                    """UPDATE observacao
+                       SET resposta = ?, respondida_por = ?, respondida_em = ?
+                       WHERE id = ?""",
+                    (texto, sessao["usuario_id"], momento, observacao_id),
+                )
+            mensagens = _mensagens_da_obs(conn, observacao_id)
+            conn.commit()
+        return JSONResponse({"id": observacao_id, "mensagem": msg, "mensagens": mensagens, "estado": "aberta"}, status_code=201)
+
+    @app.post("/api/observacoes/{observacao_id}/resolucao")
+    def resolver_observacao(observacao_id: str, corpo: dict[str, Any], request: Request) -> JSONResponse:
+        nota = str(corpo.get("texto") or corpo.get("nota") or "").strip()
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            if sessao["perfil"] not in ("engenharia", "supervisao", "admin"):
+                return erro(403, "perfil_insuficiente", "Quem resolve é a engenharia.")
+            obs = conn.execute("SELECT * FROM observacao WHERE id = ?", (observacao_id,)).fetchone()
+            if obs is None:
+                return erro(404, "nao_encontrado", "Apontamento não encontrado.")
+            if (obs["estado"] if "estado" in obs.keys() else "aberta") == "resolvida":
+                return JSONResponse({"id": observacao_id, "estado": "resolvida"})
+            momento = agora()
+            if nota:
+                _gravar_mensagem(conn, observacao_id, sessao["usuario_id"], "engenharia", nota, momento)
+                conn.execute(
+                    """UPDATE observacao
+                       SET resposta = ?, respondida_por = ?, respondida_em = ?, estado = 'resolvida'
+                       WHERE id = ?""",
+                    (nota, sessao["usuario_id"], momento, observacao_id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE observacao SET estado = 'resolvida' WHERE id = ?",
+                    (observacao_id,),
+                )
+            conn.execute(
+                """INSERT INTO evento_auditoria
+                   (ocorrido_em, ator_usuario_id, ator_dispositivo_id, acao, entidade, entidade_id, quadro_id, operacao_id, detalhe)
+                   VALUES (?, ?, NULL, 'resolucao', 'observacao', ?, ?, NULL, 'resolvida')""",
+                (momento, sessao["usuario_id"], observacao_id, obs["quadro_id"]),
+            )
+            conn.commit()
+        return JSONResponse({"id": observacao_id, "estado": "resolvida", "respondida_em": momento})
 
     @app.post("/api/pendencias/{pendencia_id}/resolucao")
     def resolver_pendencia(pendencia_id: str, request: Request) -> JSONResponse:

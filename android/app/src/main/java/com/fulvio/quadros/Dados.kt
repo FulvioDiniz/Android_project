@@ -116,9 +116,11 @@ data class DiarioLocal(
     val texto: String,
     val resposta: String,
     val ocorridoEm: String,
+    val estado: String = "aberta",
+    val mensagensJson: String = "[]",
 )
 
-@Database(entities = [QuadroLocal::class, Meta::class, FilaLocal::class, DiarioLocal::class], version = 6)
+@Database(entities = [QuadroLocal::class, Meta::class, FilaLocal::class, DiarioLocal::class], version = 7)
 abstract class BancoLocal : RoomDatabase() {
     abstract fun dao(): QuadroDao
 }
@@ -360,6 +362,7 @@ fun baixarDiario(base: String, token: String): List<DiarioLocal> {
     val lista = JSONArray(pedirTexto(base, "/api/observacoes", "GET", token, null))
     return List(lista.length()) { i ->
         val item = lista.getJSONObject(i)
+        val msgs = item.optJSONArray("mensagens") ?: JSONArray()
         DiarioLocal(
             id = item.getString("id"),
             quadroId = item.optString("quadro_id"),
@@ -367,8 +370,14 @@ fun baixarDiario(base: String, token: String): List<DiarioLocal> {
             texto = item.optString("texto"),
             resposta = item.optString("resposta"),
             ocorridoEm = item.optString("ocorrido_em"),
+            estado = item.optString("estado", "aberta").ifBlank { "aberta" },
+            mensagensJson = msgs.toString(),
         )
     }
+}
+
+fun enviarMensagemChat(base: String, token: String, observacaoId: String, texto: String): JSONObject {
+    return pedir(base, "/api/observacoes/$observacaoId/mensagens", "POST", token, JSONObject().put("texto", texto).toString())
 }
 
 fun enviarFoto(dao: QuadroDao, base: String, token: String, item: FilaLocal): RespostaApi {

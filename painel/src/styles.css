@@ -654,3 +654,56 @@ button.erro-card {
   border-color: #e85d04;
   color: #fff;
 }
+
+
+.chat-bloco {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.chat-fios {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 280px;
+  overflow: auto;
+  padding: 8px;
+  background: #fffaf5;
+  border: 1px solid #f0dcc8;
+  border-radius: 12px;
+}
+
+.balao {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 85%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 14px;
+}
+
+.balao strong {
+  font-size: 12px;
+}
+
+.balao-eng {
+  align-self: flex-start;
+  background: #ffedd5;
+}
+
+.balao-mont {
+  align-self: flex-end;
+  background: #f3f4f6;
+}
+
+.chat-acoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chat-acoes button {
+  margin: 0;
+}

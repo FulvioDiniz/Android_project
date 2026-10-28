@@ -178,12 +178,24 @@ CREATE TABLE IF NOT EXISTS observacao (
     resposta TEXT,
     respondida_por TEXT,
     respondida_em TEXT,
+    estado TEXT NOT NULL DEFAULT 'aberta',
     usuario_id TEXT NOT NULL,
     dispositivo_id TEXT,
     operacao_id TEXT NOT NULL UNIQUE,
     ocorrido_em TEXT NOT NULL,
     recebido_em TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS observacao_mensagem (
+    id TEXT PRIMARY KEY,
+    observacao_id TEXT NOT NULL,
+    usuario_id TEXT NOT NULL,
+    perfil TEXT NOT NULL,
+    texto TEXT NOT NULL,
+    criado_em TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS ix_obs_msg_obs ON observacao_mensagem (observacao_id, criado_em);
 
 CREATE TABLE IF NOT EXISTS foto (
     id TEXT PRIMARY KEY,
@@ -389,6 +401,10 @@ def _garantir_colunas(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE observacao ADD COLUMN respondida_por TEXT")
     if "respondida_em" not in nomes:
         conn.execute("ALTER TABLE observacao ADD COLUMN respondida_em TEXT")
+    if "estado" not in nomes:
+        conn.execute("ALTER TABLE observacao ADD COLUMN estado TEXT NOT NULL DEFAULT 'aberta'")
+        conn.execute("UPDATE observacao SET estado = 'resolvida' WHERE resposta IS NOT NULL AND trim(resposta) != ''")
+        conn.execute("UPDATE observacao SET estado = 'aberta' WHERE estado IS NULL OR trim(estado) = ''")
     revisao = {row["name"] for row in conn.execute("PRAGMA table_info(revisao)")}
     if "origem" not in revisao:
         conn.execute("ALTER TABLE revisao ADD COLUMN origem TEXT NOT NULL DEFAULT 'painel'")

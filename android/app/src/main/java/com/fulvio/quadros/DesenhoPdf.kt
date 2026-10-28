@@ -252,7 +252,7 @@ fun TelaDesenho(
 
     Box(modifier = Modifier.fillMaxSize().background(Fundo)) {
         AreaPdf(
-            modifier = Modifier.fillMaxSize().padding(top = 64.dp, bottom = if (painelAberto) 250.dp else 84.dp),
+            modifier = Modifier.fillMaxSize().padding(top = 64.dp, bottom = if (painelAberto) 280.dp else 96.dp),
             bitmap = bitmap,
             falha = falha,
             modo = modo,
@@ -326,82 +326,73 @@ fun TelaDesenho(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .padding(12.dp)
-                .shadow(10.dp, Forma)
+                .padding(10.dp)
+                .shadow(12.dp, Forma)
                 .clip(Forma)
                 .background(Branco)
                 .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(
                 modifier = Modifier.horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Chip("Ver", modo == ModoDesenho.Ver) { entrarModo(ModoDesenho.Ver) }
                 Chip("Desenhar", modo == ModoDesenho.Lapis) { entrarModo(ModoDesenho.Lapis) }
                 Chip("Apagar", modo == ModoDesenho.Apagar, Cinza) { entrarModo(ModoDesenho.Apagar) }
                 Chip("Erro", modo == ModoDesenho.Erro, Vermelho) { entrarModo(ModoDesenho.Erro) }
                 Chip("Mudança", modo == ModoDesenho.Mudanca, Azul) { entrarModo(ModoDesenho.Mudanca) }
-                Chip(if (painelAberto) "Fechar" else "Enviar", painelAberto) { painelAberto = !painelAberto }
-            }
-            if (tracosPagina.isNotEmpty() || modo == ModoDesenho.Apagar || modo == ModoDesenho.Lapis) {
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (tracosPagina.isNotEmpty()) {
-                        Chip("Desfazer", ativo = false, cor = Cinza) { desfazerUltimoTraco() }
-                        Chip("Limpar folha", ativo = false, cor = Cinza) { limparTracosFolha() }
-                    }
-                    Text(
-                        when (modo) {
-                            ModoDesenho.Apagar -> "Passe no traço ou toque na marca"
-                            ModoDesenho.Lapis -> "Desenhe · use Apagar para corrigir"
-                            else -> "${tracosPagina.size} traço(s) na folha"
-                        },
-                        color = Cinza,
-                        fontSize = 12.sp,
-                    )
+                if (tracosPagina.isNotEmpty()) {
+                    Chip("Desfazer", ativo = false, cor = Cinza) { desfazerUltimoTraco() }
+                    Chip("Limpar", ativo = false, cor = Cinza) { limparTracosFolha() }
                 }
             }
-            if (painelAberto) {
-                val alvo = rascunho
+            val alvo = rascunho
+            val podeEnviar = alvo != null || tracosPagina.isNotEmpty()
+            if (!painelAberto) {
+                Botao(
+                    if (podeEnviar) "Continuar para enviar" else "Abrir envio / comentário",
+                    preenchido = podeEnviar,
+                    cor = if (podeEnviar) Laranja else Cinza,
+                ) { painelAberto = true }
+            } else {
                 if (alvo == null && tracosPagina.isEmpty()) {
                     Text(
-                        "Desenhe, apague ou toque em Erro/Mudança. Dois dedos dão zoom. Toque numa marca para editar.",
+                        "Desenhe, marque Erro/Mudança e depois envie. Dois dedos = zoom.",
                         color = Cinza,
-                        fontSize = 14.sp,
+                        fontSize = 13.sp,
                     )
+                    Botao("Fechar", preenchido = false, cor = Cinza) { painelAberto = false }
                 } else if (alvo == null) {
                     Text(
-                        "${tracosPagina.size} traço(s) nesta folha. Envie para a engenharia ver no PDF.",
+                        "${tracosPagina.size} traço(s) prontos para a engenharia",
                         color = Preto,
-                        fontSize = 14.sp,
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                     )
-                    Campo("Comentário", texto, linhas = 2, aoMudar = { texto = it })
-                    Botao("Enviar marcação") {
+                    Campo("Comentário (opcional)", texto, linhas = 2, aoMudar = { texto = it })
+                    Botao("ENVIAR PARA ENGENHARIA") {
                         val mensagem = texto.trim().ifBlank { "Marcação no desenho" }
                         aoEnviar(null, mensagem, tracosPagina)
                         texto = ""
                         modo = ModoDesenho.Ver
                         painelAberto = false
                     }
+                    Botao("Fechar sem enviar", preenchido = false, cor = Cinza) { painelAberto = false }
                 } else {
                     Text(
                         if (alvo.tipo == ModoDesenho.Erro) "Erro nesta folha" else "Mudança nesta folha",
                         color = Preto,
-                        fontSize = 15.sp,
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                     )
-                    Text(
-                        "Toque de novo no PDF para mover. Apagar marca remove.",
-                        color = Cinza,
-                        fontSize = 12.sp,
-                    )
-                    Campo("Texto para a engenharia", texto, linhas = 3, aoMudar = { texto = it })
-                    Botao("Enviar", enabled = texto.trim().isNotBlank() || tracosPagina.isNotEmpty()) {
+                    Text("Toque de novo no PDF para mover a marca.", color = Cinza, fontSize = 12.sp)
+                    Campo("Descreva o problema", texto, linhas = 3, aoMudar = { texto = it })
+                    Botao(
+                        "ENVIAR PARA ENGENHARIA",
+                        enabled = texto.trim().isNotBlank() || tracosPagina.isNotEmpty(),
+                    ) {
                         val mensagem = texto.trim().ifBlank { "Marcação no desenho" }
                         val pronto = alvo.copy(texto = mensagem, enviado = true)
                         aoAtualizarPinos(pinos + pronto)
@@ -411,17 +402,23 @@ fun TelaDesenho(
                         modo = ModoDesenho.Ver
                         painelAberto = false
                     }
-                    Botao("Apagar marca", preenchido = false, cor = Vermelho) {
-                        removerPino(alvo.id)
-                        texto = ""
-                        modo = ModoDesenho.Ver
-                        painelAberto = false
-                    }
-                    Botao("Cancelar", preenchido = false, cor = Cinza) {
-                        rascunho = null
-                        texto = ""
-                        modo = ModoDesenho.Ver
-                        painelAberto = false
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            Botao("Apagar marca", preenchido = false, cor = Vermelho) {
+                                removerPino(alvo.id)
+                                texto = ""
+                                modo = ModoDesenho.Ver
+                                painelAberto = false
+                            }
+                        }
+                        Box(modifier = Modifier.weight(1f)) {
+                            Botao("Cancelar", preenchido = false, cor = Cinza) {
+                                rascunho = null
+                                texto = ""
+                                modo = ModoDesenho.Ver
+                                painelAberto = false
+                            }
+                        }
                     }
                 }
             }

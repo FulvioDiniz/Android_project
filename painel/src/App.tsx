@@ -72,14 +72,24 @@ type PastaRede = {
   comparacoes?: ComparacaoRede[];
 };
 
+type MensagemChat = {
+  id: string;
+  perfil: string;
+  texto: string;
+  criado_em?: string;
+  usuario?: string;
+};
+
 type Duvida = {
   id: string;
   quadro_id: string;
   quadro_codigo: string;
   texto: string;
   resposta: string | null;
+  estado?: string;
   usuario: string;
   ocorrido_em?: string;
+  mensagens?: MensagemChat[];
   fotos: { id: string; hash_sha256: string; legenda: string }[];
 };
 
@@ -298,7 +308,7 @@ export function App() {
       setPastaRede({ acessivel: false, mensagem: "Pasta de rede indisponível.", caminho: "" });
     }
     try {
-      setDuvidas(await api<Duvida[]>("/api/observacoes?tipo=duvida", token));
+      setDuvidas(await api<Duvida[]>("/api/observacoes?tipo=duvida", token)); // inclui abertas e resolvidas; UI filtra
     } catch {
       /* mantém a lista anterior se a rede falhar no meio */
     }
@@ -346,7 +356,7 @@ export function App() {
 
   useEffect(() => {
     if (!sessao || abriuErro.current) return;
-    const recente = [...duvidas].reverse().find((item) => !item.resposta);
+    const recente = [...duvidas].reverse().find((item) => (item.estado || "aberta") !== "resolvida");
     if (!recente) return;
     abriuErro.current = true;
     setTela("duvidas");
@@ -550,7 +560,7 @@ export function App() {
     );
   }
 
-  const semResposta = duvidas.filter((item) => !item.resposta).length;
+  const semResposta = duvidas.filter((item) => (item.estado || "aberta") !== "resolvida").length;
   const engenharia = sessao.perfil === "engenharia";
   const podeResolver = engenharia || sessao.perfil === "supervisao";
   const quadro = quadros.find((item) => item.id === quadroId) ?? null;
@@ -723,9 +733,9 @@ export function App() {
                             {ondePortal(item.caminho_projeto) || `${item.cliente_nome} · OP ${item.ordem_numero}`}
                           </span>
                         </div>
-                        {duvidas.filter((d) => d.quadro_id === item.id && !d.resposta).length > 0 ? (
+                        {duvidas.filter((d) => d.quadro_id === item.id && (d.estado || "aberta") !== "resolvida").length > 0 ? (
                           <span className="selo selo-erro">
-                            {duvidas.filter((d) => d.quadro_id === item.id && !d.resposta).length} em aberto
+                            {duvidas.filter((d) => d.quadro_id === item.id && (d.estado || "aberta") !== "resolvida").length} em aberto
                           </span>
                         ) : (
                           <span className={seloTexto === "Sem PDF" ? "selo selo-vazio" : "selo"}>{seloTexto}</span>
@@ -795,7 +805,7 @@ export function App() {
                           {tipo === "erro" ? "Erro" : tipo === "mudanca" ? "Mudança" : "Desenho"} · folha {folha}
                         </span>
                         <strong>{comentarioMarca(item.texto)}</strong>
-                        <span className="miudo">{item.resposta ? "Respondido" : "Sem resposta"} · {item.usuario}</span>
+                        <span className="miudo">{(item.estado || "aberta") === "resolvida" ? "Resolvido" : "Em aberto"} · {item.usuario}</span>
                       </button>
                     );
                   })}
@@ -1119,7 +1129,7 @@ export function App() {
                 <aside className="erros-lista">
                   {duvidas
                     .filter((item) => {
-                      if (filtroErro === "abertos") return !item.resposta;
+                      if (filtroErro === "abertos") return (item.estado || "aberta") !== "resolvida";
                       if (filtroErro === "erros") return tipoMarca(item.texto) === "erro";
                       return true;
                     })
@@ -1142,7 +1152,7 @@ export function App() {
                           </span>
                           <strong>{item.quadro_codigo}</strong>
                           <span>{comentarioMarca(item.texto)}</span>
-                          <span className="miudo">{item.resposta ? "Respondido" : "Sem resposta"} · {item.usuario}</span>
+                          <span className="miudo">{(item.estado || "aberta") === "resolvida" ? "Resolvido" : "Em aberto"} · {item.usuario}</span>
                         </button>
                       );
                     })}
@@ -1165,40 +1175,76 @@ export function App() {
                     </div>
                   )}
                   {erroFoco ? (
-                    <form
-                      className="bloco"
-                      onSubmit={(evento) => {
-                        evento.preventDefault();
-                        const texto = (respostas[erroFoco] ?? "").trim();
-                        if (!texto) return;
-                        api(`/api/observacoes/${erroFoco}/resposta`, sessao.token, {
-                          method: "POST",
-                          body: JSON.stringify({ resposta: texto }),
-                        })
-                          .then(() => carregar(sessao.token))
-                          .catch((falha: Error) => setErro(falha.message));
-                      }}
-                    >
-                      <h2>Responder</h2>
-                      <p>{comentarioMarca(duvidas.find((item) => item.id === erroFoco)?.texto ?? "")}</p>
-                      {duvidas.find((item) => item.id === erroFoco)?.resposta ? (
-                        <p className="ok">Resposta: {duvidas.find((item) => item.id === erroFoco)?.resposta}</p>
-                      ) : engenharia ? (
-                        <>
+                    <div className="bloco chat-bloco">
+                      <h2>Bate-papo com a montagem</h2>
+                      <p className="miudo">{comentarioMarca(duvidas.find((item) => item.id === erroFoco)?.texto ?? "")}</p>
+                      <div className="chat-fios">
+                        {(duvidas.find((item) => item.id === erroFoco)?.mensagens || []).map((msg) => (
+                          <div
+                            key={msg.id}
+                            className={msg.perfil === "engenharia" ? "balao balao-eng" : "balao balao-mont"}
+                          >
+                            <strong>{msg.usuario || (msg.perfil === "engenharia" ? "Engenharia" : "Montagem")}</strong>
+                            <span>{msg.texto}</span>
+                          </div>
+                        ))}
+                        {(duvidas.find((item) => item.id === erroFoco)?.mensagens || []).length === 0 ? (
+                          <p className="miudo">Ainda sem mensagens nesta conversa.</p>
+                        ) : null}
+                      </div>
+                      {(duvidas.find((item) => item.id === erroFoco)?.estado || "aberta") !== "resolvida" && engenharia ? (
+                        <form
+                          className="chat-envio"
+                          onSubmit={(evento) => {
+                            evento.preventDefault();
+                            const texto = (respostas[erroFoco] ?? "").trim();
+                            if (!texto) return;
+                            api(`/api/observacoes/${erroFoco}/mensagens`, sessao.token, {
+                              method: "POST",
+                              body: JSON.stringify({ texto }),
+                            })
+                              .then(() => {
+                                setRespostas({ ...respostas, [erroFoco]: "" });
+                                return carregar(sessao.token);
+                              })
+                              .catch((falha: Error) => setErro(falha.message));
+                          }}
+                        >
                           <label>
-                            Resposta para o montador
+                            Mensagem para o montador
                             <input
                               value={respostas[erroFoco] ?? ""}
                               onChange={(e) => setRespostas({ ...respostas, [erroFoco]: e.target.value })}
-                              placeholder="O que a engenharia decide"
+                              placeholder="Escreva no bate-papo"
                             />
                           </label>
-                          <button type="submit">Enviar resposta</button>
-                        </>
+                          <div className="chat-acoes">
+                            <button type="submit">Enviar no bate-papo</button>
+                            <button
+                              type="button"
+                              className="secundario"
+                              onClick={() => {
+                                api(`/api/observacoes/${erroFoco}/resolucao`, sessao.token, {
+                                  method: "POST",
+                                  body: JSON.stringify({
+                                    texto: (respostas[erroFoco] ?? "").trim() || "Problema resolvido.",
+                                  }),
+                                })
+                                  .then(() => {
+                                    setErroFoco("");
+                                    return carregar(sessao.token);
+                                  })
+                                  .catch((falha: Error) => setErro(falha.message));
+                              }}
+                            >
+                              Marcar resolvido e sair
+                            </button>
+                          </div>
+                        </form>
                       ) : (
-                        <p>Sem resposta.</p>
+                        <p className="ok">Resolvido — saiu da lista de erros abertos.</p>
                       )}
-                    </form>
+                    </div>
                   ) : null}
                 </div>
               </div>
