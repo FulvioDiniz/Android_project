@@ -285,6 +285,18 @@ def varrer_uma_vez(db_path: str, arquivos_dir: str, caminho: str, estado: dict) 
         print(f"pdfs_vistos {vistos}", flush=True)
 
 
+def _peso_revisao(nome: str) -> tuple[int, int]:
+    codigo = codigo_revisao_do_arquivo(nome)
+    if re.fullmatch(r"[A-Z]+", codigo or ""):
+        n = 0
+        for ch in codigo:
+            n = n * 26 + (ord(ch) - 64)
+        return (1, n)
+    if (codigo or "").isdigit():
+        return (1, int(codigo))
+    return (0, 0)
+
+
 def _pdf_mais_recente(pasta: Path) -> Path | None:
     alvo = pasta / "PDF" if pasta.name.lower() != "pdf" and (pasta / "PDF").is_dir() else pasta
     try:
@@ -293,7 +305,11 @@ def _pdf_mais_recente(pasta: Path) -> Path | None:
         return None
     if not pdfs:
         return None
-    return max(pdfs, key=lambda item: (item.stat().st_mtime, item.name))
+    # Prefere a letra/número da revisão; mtime só desempata.
+    return max(
+        pdfs,
+        key=lambda item: (_peso_revisao(item.name), item.stat().st_mtime, item.name),
+    )
 
 
 def _substituir_bytes(conn, arquivos_dir: str, revisao_id: str, nome: str, conteudo: bytes) -> None:

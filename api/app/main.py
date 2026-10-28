@@ -462,7 +462,13 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
             rows = conn.execute(
                 """SELECT q.id, q.codigo, q.titulo, q.status, q.revisao_vigente_id,
                           rv.codigo AS revisao_vigente_codigo,
-                          rv.arquivo_id AS arquivo_id,
+                          COALESCE(
+                            (SELECT r2.arquivo_id FROM revisao r2
+                             WHERE r2.quadro_id = q.id
+                               AND r2.arquivo_id IS NOT NULL AND trim(r2.arquivo_id) != ''
+                             ORDER BY r2.importada_em DESC LIMIT 1),
+                            rv.arquivo_id
+                          ) AS arquivo_id,
                           rv.tipo AS revisao_tipo,
                           op.numero AS ordem_numero, c.nome AS cliente_nome,
                           u.nome AS responsavel_nome, b.nome AS bancada_nome
@@ -489,7 +495,14 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
                 return sessao
             row = conn.execute(
                 """SELECT q.id, q.codigo, q.titulo, q.status, q.revisao_vigente_id,
-                          rv.codigo AS revisao_vigente_codigo, rv.arquivo_id AS arquivo_id,
+                          rv.codigo AS revisao_vigente_codigo,
+                          COALESCE(
+                            (SELECT r2.arquivo_id FROM revisao r2
+                             WHERE r2.quadro_id = q.id
+                               AND r2.arquivo_id IS NOT NULL AND trim(r2.arquivo_id) != ''
+                             ORDER BY r2.importada_em DESC LIMIT 1),
+                            rv.arquivo_id
+                          ) AS arquivo_id,
                           op.id AS ordem_producao_id, op.numero AS ordem_numero,
                           c.nome AS cliente_nome
                    FROM quadro q
