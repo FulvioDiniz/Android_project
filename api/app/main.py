@@ -600,6 +600,22 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
             return erro(503, "banco_indisponivel", "O quadro não foi gravado.")
         return JSONResponse({"id": qid, "codigo": codigo}, status_code=201)
 
+    @app.post("/api/projetos/sincronizar-rede")
+    def sincronizar_projetos_rede(request: Request) -> JSONResponse:
+        """Lê \\\\Srv3302\\projetos elétricos e cadastra pastas PDF que ainda não estão no Quadros."""
+        from app.sincronizar_rede import sincronizar_pastas
+
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            if sessao["perfil"] != "engenharia":
+                return erro(403, "perfil_insuficiente", "Só engenharia sincroniza a rede.")
+            resultado = sincronizar_pastas(conn, sessao["usuario_id"])
+            conn.commit()
+        status = 200 if resultado.get("ok") else 503
+        return JSONResponse(resultado, status_code=status)
+
     @app.post("/api/projetos")
     async def enviar_projeto(request: Request, arquivo: UploadFile = File(...)) -> JSONResponse:
         nome = arquivo.filename or ""

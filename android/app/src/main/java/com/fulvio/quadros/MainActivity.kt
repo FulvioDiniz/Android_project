@@ -147,24 +147,17 @@ private fun Tela(dao: QuadroDao) {
             withContext(Dispatchers.IO) { drenarFila(dao) }
             try {
                 val lista = withContext(Dispatchers.IO) { baixarQuadros(base, acesso) }
-                var baixados = 0
-                for (quadro in lista) {
-                    if (quadro.arquivoId.isBlank()) continue
-                    statusSync = "Baixando PDF de ${quadro.codigo}..."
-                    val ok = withContext(Dispatchers.IO) {
-                        runCatching {
-                            copiarPdfSeFaltar(dao, base, acesso, quadro.arquivoId, pasta)
-                            true
-                        }.getOrDefault(false)
-                    }
-                    if (ok) baixados += 1
-                }
                 withContext(Dispatchers.IO) {
                     dao.limpar()
                     dao.salvar(lista)
                     dao.gravar(Meta("servidor", base))
                     dao.gravar(Meta("token", acesso))
                     dao.gravar(Meta("sync", Instant.now().toString()))
+                    // PDF sob demanda ao abrir o desenho — nao baixa os centenas de arquivos na sync.
+                    val abertoId = aberto?.arquivoId.orEmpty()
+                    if (abertoId.isNotBlank()) {
+                        runCatching { copiarPdfSeFaltar(dao, base, acesso, abertoId, pasta) }
+                    }
                     runCatching { baixarDiario(base, acesso) }.onSuccess { notas ->
                         dao.limparDiario()
                         if (notas.isNotEmpty()) dao.salvarDiario(notas)
@@ -177,7 +170,8 @@ private fun Tela(dao: QuadroDao) {
                         dao.gravar(Meta("alerta", "Revisao nova. Confira a vigente antes de seguir."))
                     }
                 }
-                statusSync = "${lista.size} projeto(s) · $baixados PDF pronto(s)"
+                val comPdf = lista.count { it.arquivoId.isNotBlank() }
+                statusSync = "${lista.size} projeto(s) · $comPdf com PDF no servidor"
                 enlace = "No ar"
                 erro = ""
             } catch (falha: Exception) {
@@ -301,6 +295,19 @@ private fun Tela(dao: QuadroDao) {
                         aoAbrir = {
                             aberto = it
                             aba = Aba.Desenho
+                            val alvo = it
+                            if (alvo.arquivoId.isNotBlank() && token.isNotBlank()) {
+                                escopo.launch {
+                                    statusSync = "Baixando PDF de ${alvo.codigo}..."
+                                    withContext(Dispatchers.IO) {
+                                        runCatching {
+                                            copiarPdfSeFaltar(dao, servidor, token, alvo.arquivoId, contexto.filesDir)
+                                        }
+                                    }
+                                    statusSync = "PDF pronto · ${alvo.codigo}"
+                                    versao += 1
+                                }
+                            }
                         },
                         aoAtualizar = { ciclo(servidor, token) },
                         aoSair = {

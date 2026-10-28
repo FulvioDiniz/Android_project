@@ -543,6 +543,39 @@ export function App() {
             </header>
 
             {engenharia ? (
+              <div className="bloco">
+                <h2>Pasta de rede</h2>
+                <p className="miudo">
+                  Lê \\Srv3302\projetos elétricos e cadastra as pastas PDF que ainda não estão na lista.
+                </p>
+                <button
+                  type="button"
+                  className="secundario"
+                  onClick={async () => {
+                    if (!sessao) return;
+                    setErro("");
+                    setAviso("Lendo a pasta de rede…");
+                    try {
+                      const r = await api<{
+                        ok: boolean;
+                        mensagem: string;
+                        criados: number;
+                        total_rede: number;
+                      }>("/api/projetos/sincronizar-rede", sessao.token, { method: "POST", body: "{}" });
+                      setAviso(r.mensagem);
+                      await carregar(sessao.token);
+                    } catch (falha) {
+                      setErro(falha instanceof Error ? falha.message : "Falha ao ler a rede");
+                      setAviso("");
+                    }
+                  }}
+                >
+                  Sincronizar projetos da rede
+                </button>
+              </div>
+            ) : null}
+
+            {engenharia ? (
               <form className="bloco destaque-criar" onSubmit={cadastrar}>
                 <h2>Novo projeto</h2>
                 <p className="miudo">Use o caminho que o supervisor indicar. Não precisa cadastrar OP à mão.</p>
