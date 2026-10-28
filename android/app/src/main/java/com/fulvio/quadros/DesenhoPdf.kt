@@ -22,13 +22,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.gestures.TransformableState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -47,11 +47,13 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.io.File
 import kotlin.math.max
+import kotlin.math.min
 
 enum class ModoDesenho { Ver, Erro, Mudanca }
 
@@ -100,7 +102,18 @@ fun TelaDesenho(
         folha.close()
         renderer.close()
         descritor.close()
+        val anterior = bitmap
         bitmap = imagem
+        if (anterior != null && anterior !== imagem && !anterior.isRecycled) {
+            anterior.recycle()
+        }
+    }
+
+    DisposableEffect(quadro.id, quadro.arquivoId) {
+        onDispose {
+            bitmap?.let { if (!it.isRecycled) it.recycle() }
+            bitmap = null
+        }
     }
 
     LaunchedEffect(quadro.id, quadro.arquivoId, pagina) {
@@ -110,11 +123,25 @@ fun TelaDesenho(
                 .onSuccess { falha = "" }
                 .onFailure { falha = it.message ?: "PDF não abriu" }
         } else {
+            val anterior = bitmap
             bitmap = null
+            if (anterior != null && !anterior.isRecycled) anterior.recycle()
             falha = "O PDF ainda não está neste aparelho. Atualize a lista."
         }
         escala = 1f
         deslocamento = Offset.Zero
+    }
+
+    fun entrarModo(novo: ModoDesenho) {
+        modo = novo
+        // Marca só com zoom 1:1 — evita pino longe do toque.
+        if (novo != ModoDesenho.Ver) {
+            escala = 1f
+            deslocamento = Offset.Zero
+        } else {
+            rascunho = null
+            texto = ""
+        }
     }
 
     val transform = rememberTransformableState { zoom, pan, _ ->
@@ -131,13 +158,7 @@ fun TelaDesenho(
             PainelApontamento(
                 quadro = quadro,
                 modo = modo,
-                aoModo = {
-                    modo = it
-                    if (it == ModoDesenho.Ver) {
-                        rascunho = null
-                        texto = ""
-                    }
-                },
+                aoModo = { entrarModo(it) },
                 pagina = pagina,
                 folhas = folhas,
                 aoPagina = { pagina = it },
@@ -242,62 +263,78 @@ private fun AreaPdf(
     pinos: List<PinoDesenho>,
     aoToque: (Float, Float) -> Unit,
 ) {
+    val density = LocalDensity.current
     Box(
         modifier = modifier
             .clip(Forma)
             .background(Color(0xFF2A2E36))
             .border(1.dp, Borda, Forma)
             .clipToBounds(),
+        contentAlignment = Alignment.Center,
     ) {
         if (bitmap != null && falha.isBlank()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer(
-                        scaleX = escala,
-                        scaleY = escala,
-                        translationX = deslocamento.x,
-                        translationY = deslocamento.y,
-                    )
-                    .then(
-                        if (modo == ModoDesenho.Ver) {
-                            Modifier.transformable(state = transform)
-                        } else {
-                            Modifier.pointerInput(modo) {
-                                detectTapGestures { offset ->
-                                    val w = size.width.toFloat().coerceAtLeast(1f)
-                                    val h = size.height.toFloat().coerceAtLeast(1f)
-                                    aoToque(
-                                        (offset.x / w).coerceIn(0f, 1f),
-                                        (offset.y / h).coerceIn(0f, 1f),
-                                    )
+            BoxWithConstraints(modifier = Modifier.fillMaxSize().padding(8.dp), contentAlignment = Alignment.Center) {
+                val boxW = constraints.maxWidth.toFloat().coerceAtLeast(1f)
+                val boxH = constraints.maxHeight.toFloat().coerceAtLeast(1f)
+                val imgW = bitmap.width.toFloat().coerceAtLeast(1f)
+                val imgH = bitmap.height.toFloat().coerceAtLeast(1f)
+                val fit = min(boxW / imgW, boxH / imgH)
+                val desenhoW = imgW * fit
+                val desenhoH = imgH * fit
+                val desenhoWDp = with(density) { desenhoW.toDp() }
+                val desenhoHDp = with(density) { desenhoH.toDp() }
+                Box(
+                    modifier = Modifier
+                        .width(desenhoWDp)
+                        .height(desenhoHDp)
+                        .graphicsLayer(
+                            scaleX = escala,
+                            scaleY = escala,
+                            translationX = deslocamento.x,
+                            translationY = deslocamento.y,
+                        )
+                        .then(
+                            if (modo == ModoDesenho.Ver) {
+                                Modifier.transformable(state = transform)
+                            } else {
+                                Modifier.pointerInput(modo, desenhoW, desenhoH) {
+                                    detectTapGestures { offset ->
+                                        aoToque(
+                                            (offset.x / size.width.toFloat().coerceAtLeast(1f)).coerceIn(0f, 1f),
+                                            (offset.y / size.height.toFloat().coerceAtLeast(1f)).coerceIn(0f, 1f),
+                                        )
+                                    }
                                 }
+                            },
+                        ),
+                ) {
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = "Folha do desenho",
+                        contentScale = ContentScale.FillBounds,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        pinos.forEach { pino ->
+                            val cor = when (pino.tipo) {
+                                ModoDesenho.Erro -> Vermelho
+                                ModoDesenho.Mudanca -> Azul
+                                ModoDesenho.Ver -> Amarelo
                             }
-                        },
-                    ),
-            ) {
-                Image(
-                    bitmap = bitmap.asImageBitmap(),
-                    contentDescription = "Folha do desenho",
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize().padding(8.dp),
-                )
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    pinos.forEach { pino ->
-                        val cor = when (pino.tipo) {
-                            ModoDesenho.Erro -> Vermelho
-                            ModoDesenho.Mudanca -> Azul
-                            ModoDesenho.Ver -> Amarelo
+                            val centro = Offset(size.width * pino.x, size.height * pino.y)
+                            drawCircle(color = cor.copy(alpha = 0.25f), radius = 28f, center = centro)
+                            drawCircle(color = cor, radius = 14f, center = centro)
+                            drawCircle(color = Branco, radius = 5f, center = centro)
                         }
-                        val centro = Offset(size.width * pino.x, size.height * pino.y)
-                        drawCircle(color = cor.copy(alpha = 0.25f), radius = 28f, center = centro)
-                        drawCircle(color = cor, radius = 14f, center = centro)
-                        drawCircle(color = Branco, radius = 5f, center = centro)
                     }
                 }
             }
             Text(
-                if (modo == ModoDesenho.Ver) "Pinça para zoom · arraste para mover" else "Toque no ponto do desenho",
+                if (modo == ModoDesenho.Ver) {
+                    "Pinça para zoom · arraste para mover"
+                } else {
+                    "Zoom volta a 100% · toque no ponto do desenho"
+                },
                 color = Branco.copy(alpha = 0.85f),
                 fontSize = 13.sp,
                 modifier = Modifier
