@@ -1639,6 +1639,25 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
             corpo_foto = _json_foto(conn, foto)
         return JSONResponse(corpo_foto, status_code=201)
 
+    @app.get("/api/pendencias")
+    def listar_pendencias(request: Request, status: str = "aberta") -> JSONResponse:
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            rows = conn.execute(
+                """SELECT p.id, p.quadro_id, q.codigo AS quadro_codigo, p.descricao, p.status,
+                          p.bloqueia_etapa, p.ocorrido_em, u.nome AS usuario
+                   FROM pendencia p
+                   JOIN quadro q ON q.id = p.quadro_id
+                   JOIN usuario u ON u.id = p.usuario_id
+                   WHERE (? = '' OR p.status = ?)
+                   ORDER BY p.recebido_em DESC""",
+                (status, status),
+            ).fetchall()
+            conn.commit()
+        return JSONResponse([dict(row) for row in rows])
+
     @app.get("/api/observacoes")
     def listar_observacoes(request: Request, tipo: str = "") -> JSONResponse:
         with db() as conn:

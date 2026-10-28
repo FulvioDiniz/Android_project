@@ -48,11 +48,24 @@ type PastaRede = {
 
 type Duvida = {
   id: string;
+  quadro_id: string;
   quadro_codigo: string;
   texto: string;
   resposta: string | null;
   usuario: string;
+  ocorrido_em?: string;
   fotos: { id: string; hash_sha256: string; legenda: string }[];
+};
+
+type PendenciaPainel = {
+  id: string;
+  quadro_id: string;
+  quadro_codigo: string;
+  descricao: string;
+  status: string;
+  bloqueia_etapa: number;
+  usuario: string;
+  ocorrido_em?: string;
 };
 
 type BancadaAndamento = {
@@ -218,6 +231,7 @@ export function App() {
   const [erros, setErros] = useState<{ id: string; nome_original: string; motivo: string }[]>([]);
   const [reconhecimento, setReconhecimento] = useState<Reconhecimento | null>(null);
   const [duvidas, setDuvidas] = useState<Duvida[]>([]);
+  const [pendenciasPainel, setPendenciasPainel] = useState<PendenciaPainel[]>([]);
   const [respostas, setRespostas] = useState<Record<string, string>>({});
   const [bancadas, setBancadas] = useState<BancadaAndamento[]>([]);
   const [auditoria, setAuditoria] = useState<Evento[]>([]);
@@ -254,10 +268,19 @@ export function App() {
       setPastaRede({ acessivel: false, mensagem: "Pasta de rede indisponível.", caminho: "" });
     }
     try {
+      setDuvidas(await api<Duvida[]>("/api/observacoes?tipo=duvida", token));
+    } catch {
+      /* mantém a lista anterior se a rede falhar no meio */
+    }
+    try {
+      setPendenciasPainel(await api<PendenciaPainel[]>("/api/pendencias?status=aberta", token));
+    } catch {
+      setPendenciasPainel([]);
+    }
+    try {
       setPendentes(await api("/api/revisoes?status=pendente", token));
       setAprovadas(await api("/api/revisoes?status=aprovada", token));
       setErros(await api("/api/erros-importacao?status=aberto", token));
-      setDuvidas(await api<Duvida[]>("/api/observacoes?tipo=duvida", token));
       setBancadas(await api<BancadaAndamento[]>("/api/bancadas/andamento", token));
     } catch {
       setPendentes([]);
@@ -289,6 +312,17 @@ export function App() {
     if (sessao) {
       carregar(sessao.token).catch((falha: Error) => setErro(falha.message));
     }
+  }, [sessao]);
+
+  useEffect(() => {
+    if (!sessao) return;
+    const id = window.setInterval(() => {
+      api<Duvida[]>("/api/observacoes?tipo=duvida", sessao.token).then(setDuvidas).catch(() => undefined);
+      api<PendenciaPainel[]>("/api/pendencias?status=aberta", sessao.token)
+        .then(setPendenciasPainel)
+        .catch(() => undefined);
+    }, 10000);
+    return () => window.clearInterval(id);
   }, [sessao]);
 
   useEffect(() => {
@@ -475,6 +509,7 @@ export function App() {
     );
   }
 
+  const semResposta = duvidas.filter((item) => !item.resposta).length;
   const engenharia = sessao.perfil === "engenharia";
   const podeResolver = engenharia || sessao.perfil === "supervisao";
   const quadro = quadros.find((item) => item.id === quadroId) ?? null;
@@ -518,6 +553,7 @@ export function App() {
               onClick={() => ir(item.id)}
             >
               {item.rotulo}
+              {item.id === "duvidas" && semResposta > 0 ? ` (${semResposta})` : ""}
             </button>
           ))}
           <button type="button" className="secundario" onClick={sair}>
@@ -531,6 +567,12 @@ export function App() {
       <main>
         {erro ? <p className="aviso">{erro}</p> : null}
         {aviso ? <p className="ok">{aviso}</p> : null}
+        {semResposta > 0 && tela !== "duvidas" ? (
+          <button type="button" className="inbox" onClick={() => ir("duvidas")}>
+            {semResposta} apontamento{semResposta === 1 ? "" : "s"} do tablet sem resposta
+            {pendenciasPainel.length > 0 ? ` · ${pendenciasPainel.length} pendência` : ""}
+          </button>
+        ) : null}
 
         {tela === "quadros" ? (
           <>
@@ -679,6 +721,44 @@ export function App() {
                 {quadro.revisao_vigente_codigo ? `Rev ${quadro.revisao_vigente_codigo}` : "Sem vigente"}
               </span>
             </header>
+
+            <section className="bloco">
+              <h2>Do tablet</h2>
+              <p className="miudo">Erro, mudança e pendência que o montador enviou neste projeto.</p>
+              {duvidas.filter((item) => item.quadro_id === quadro.id).length === 0 &&
+              pendenciasPainel.filter((item) => item.quadro_id === quadro.id).length === 0 ? (
+                <p>Nada chegou deste projeto ainda. A lista atualiza sozinha.</p>
+              ) : null}
+              {duvidas
+                .filter((item) => item.quadro_id === quadro.id)
+                .map((item) => (
+                  <article key={item.id} className="apontamento">
+                    <p className="codigo-menor">{item.usuario}</p>
+                    <p className="texto-apontamento">{item.texto}</p>
+                    {item.resposta ? <p className="ok">Resposta: {item.resposta}</p> : <p className="aviso">Sem resposta</p>}
+                  </article>
+                ))}
+              {pendenciasPainel
+                .filter((item) => item.quadro_id === quadro.id)
+                .map((item) => (
+                  <article key={item.id} className="apontamento">
+                    <p className="codigo-menor">Pendência · {item.usuario}</p>
+                    <p>{item.descricao}</p>
+                    {podeResolver ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          api(`/api/pendencias/${item.id}/resolucao`, sessao.token, { method: "POST", body: "{}" })
+                            .then(() => carregar(sessao.token))
+                            .catch((falha: Error) => setErro(falha.message))
+                        }
+                      >
+                        Marcar resolvida
+                      </button>
+                    ) : null}
+                  </article>
+                ))}
+            </section>
 
             <section className="bloco">
               <h2>Caminho do projeto</h2>
@@ -959,45 +1039,94 @@ export function App() {
 
         {tela === "duvidas" ? (
           <>
-            <h1>Dúvidas</h1>
-            {duvidas.length === 0 ? <p>Nenhuma dúvida dos montadores.</p> : null}
+            <header className="page-head">
+              <div>
+                <h1>Apontamentos do tablet</h1>
+                <p className="intro">
+                  Erro e mudança enviados pelo montador. A lista atualiza sozinha a cada 10 segundos.
+                </p>
+              </div>
+              <span className="contador">{semResposta} sem resposta</span>
+            </header>
+            {duvidas.length === 0 && pendenciasPainel.length === 0 ? (
+              <div className="vazio-estado">
+                <h2>Nada do tablet ainda</h2>
+                <p>Quando o montador marcar no desenho e tocar em enviar, aparece aqui.</p>
+              </div>
+            ) : null}
             <div className="lista-cartoes">
-              {duvidas.map((item) => (
+              {duvidas.map((item) => {
+                const erro = item.texto.startsWith("[ERRO]");
+                const mudanca = item.texto.startsWith("[MUDANCA]") || item.texto.startsWith("[MUDANÇA]");
+                return (
+                  <article key={item.id} className={item.resposta ? "bloco" : "bloco destaque-criar"}>
+                    <p className="codigo-menor">
+                      {erro ? "Erro" : mudanca ? "Mudança" : "Dúvida"} · {item.quadro_codigo}
+                    </p>
+                    <p className="miudo">{item.usuario}</p>
+                    <p className="texto-apontamento">{item.texto}</p>
+                    {item.fotos.length > 0 ? (
+                      <p>{item.fotos.length === 1 ? "Uma foto anexada." : `${item.fotos.length} fotos anexadas.`}</p>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="secundario"
+                      onClick={() => {
+                        setQuadroId(item.quadro_id);
+                        setTela("quadro");
+                      }}
+                    >
+                      Abrir projeto
+                    </button>
+                    {item.resposta ? (
+                      <p className="ok">Resposta: {item.resposta}</p>
+                    ) : engenharia ? (
+                      <>
+                        <label>
+                          Resposta
+                          <input
+                            value={respostas[item.id] ?? ""}
+                            onChange={(e) => setRespostas({ ...respostas, [item.id]: e.target.value })}
+                            placeholder="O que a engenharia responde"
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            api(`/api/observacoes/${item.id}/resposta`, sessao.token, {
+                              method: "POST",
+                              body: JSON.stringify({ resposta: respostas[item.id] ?? "" }),
+                            })
+                              .then(() => carregar(sessao.token))
+                              .catch((falha: Error) => setErro(falha.message))
+                          }
+                        >
+                          Responder
+                        </button>
+                      </>
+                    ) : (
+                      <p>Sem resposta.</p>
+                    )}
+                  </article>
+                );
+              })}
+              {pendenciasPainel.map((item) => (
                 <article key={item.id} className="bloco">
-                  <p className="codigo-menor">{item.quadro_codigo}</p>
-                  <p>
-                    {item.usuario}: {item.texto}
-                  </p>
-                  {item.fotos.length > 0 ? <p>{item.fotos.length === 1 ? "Uma foto anexada." : `${item.fotos.length} fotos anexadas.`}</p> : null}
-                  {item.resposta ? (
-                    <p className="ok">Resposta: {item.resposta}</p>
-                  ) : engenharia ? (
-                    <>
-                      <label>
-                        Resposta
-                        <input
-                          value={respostas[item.id] ?? ""}
-                          onChange={(e) => setRespostas({ ...respostas, [item.id]: e.target.value })}
-                          placeholder="O que a engenharia responde"
-                        />
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          api(`/api/observacoes/${item.id}/resposta`, sessao.token, {
-                            method: "POST",
-                            body: JSON.stringify({ resposta: respostas[item.id] ?? "" }),
-                          })
-                            .then(() => carregar(sessao.token))
-                            .catch((falha: Error) => setErro(falha.message))
-                        }
-                      >
-                        Responder
-                      </button>
-                    </>
-                  ) : (
-                    <p>Sem resposta.</p>
-                  )}
+                  <p className="codigo-menor">Pendência · {item.quadro_codigo}</p>
+                  <p className="miudo">{item.usuario}</p>
+                  <p>{item.descricao}</p>
+                  {podeResolver ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        api(`/api/pendencias/${item.id}/resolucao`, sessao.token, { method: "POST", body: "{}" })
+                          .then(() => carregar(sessao.token))
+                          .catch((falha: Error) => setErro(falha.message))
+                      }
+                    >
+                      Marcar resolvida
+                    </button>
+                  ) : null}
                 </article>
               ))}
             </div>

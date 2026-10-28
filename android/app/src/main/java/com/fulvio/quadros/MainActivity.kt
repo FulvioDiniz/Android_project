@@ -277,9 +277,14 @@ private fun Tela(dao: QuadroDao) {
                 },
             )
         } else {
+            val desenhoCheio = aba == Aba.Desenho && aberto != null
             Column(
-                modifier = Modifier.weight(1f).padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .then(
+                        if (desenhoCheio) Modifier else Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    ),
+                verticalArrangement = Arrangement.spacedBy(if (desenhoCheio) 0.dp else 12.dp),
             ) {
                 when {
                     aba == Aba.Projetos || aberto == null -> ListaProjetos(
@@ -374,10 +379,12 @@ private fun Tela(dao: QuadroDao) {
                     )
                 }
             }
-            Barra(aba, aberto != null) { nova ->
-                if (nova != Aba.Projetos && aberto == null) return@Barra
-                if (nova == Aba.Projetos) aberto = null
-                aba = nova
+            if (!(aba == Aba.Desenho && aberto != null)) {
+                Barra(aba, aberto != null) { nova ->
+                    if (nova != Aba.Projetos && aberto == null) return@Barra
+                    if (nova == Aba.Projetos) aberto = null
+                    aba = nova
+                }
             }
         }
     }

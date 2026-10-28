@@ -192,177 +192,142 @@ fun TelaDesenho(
     val pinosVisiveis = pinosPagina + listOfNotNull(rascunho?.takeIf { it.pagina == pagina })
     val tracosPagina = tracos.filter { it.pagina == pagina }
 
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val largo = maxWidth >= 900.dp
+    var painelAberto by remember { mutableStateOf(false) }
+    LaunchedEffect(rascunho?.id) {
+        if (rascunho != null) painelAberto = true
+    }
 
-        // Painel local @Composable quebra o contexto Compose — chamar inline.
-        if (largo) {
-            Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                AreaPdf(
-                    modifier = Modifier.weight(1f).fillMaxHeight(),
-                    bitmap = bitmap,
-                    falha = falha,
-                    modo = modo,
-                    escala = escala,
-                    deslocamento = deslocamento,
-                    transform = transform,
-                    pinos = pinosVisiveis,
-                    tracos = tracosPagina,
-                    tracoAtual = tracoAtual,
-                    aoToque = { x, y ->
-                        if (modo == ModoDesenho.Erro || modo == ModoDesenho.Mudanca) {
-                            rascunho = PinoDesenho(
-                                id = java.util.UUID.randomUUID().toString(),
-                                pagina = pagina,
-                                x = x,
-                                y = y,
-                                tipo = modo,
-                            )
-                            texto = ""
-                        }
-                    },
-                    aoArrastar = { ponto ->
-                        if (modo == ModoDesenho.Lapis) {
-                            tracoAtual = tracoAtual + ponto
-                        }
-                    },
-                    aoSoltar = {
-                        if (modo == ModoDesenho.Lapis) fecharTraco()
-                    },
-                )
-                Box(modifier = Modifier.width(380.dp).fillMaxHeight()) {
-                    PainelApontamento(
-                        quadro = quadro,
-                        modo = modo,
-                        aoModo = { entrarModo(it) },
+    Box(modifier = Modifier.fillMaxSize().background(Branco)) {
+        AreaPdf(
+            modifier = Modifier.fillMaxSize(),
+            bitmap = bitmap,
+            falha = falha,
+            modo = modo,
+            escala = escala,
+            deslocamento = deslocamento,
+            transform = transform,
+            pinos = pinosVisiveis,
+            tracos = tracosPagina,
+            tracoAtual = tracoAtual,
+            aoToque = { x, y ->
+                if (modo == ModoDesenho.Erro || modo == ModoDesenho.Mudanca) {
+                    rascunho = PinoDesenho(
+                        id = java.util.UUID.randomUUID().toString(),
                         pagina = pagina,
-                        folhas = folhas,
-                        aoPagina = { pagina = it },
-                        rascunho = rascunho,
-                        texto = texto,
-                        aoTexto = { texto = it },
-                        pinos = pinosPagina,
-                        tracosNaFolha = tracosPagina.size,
-                        aoLimparTracos = {
-                            aoAtualizarTracos(tracos.filterNot { it.pagina == pagina })
-                            tracoAtual = emptyList()
-                        },
-                        aoCancelar = {
-                            rascunho = null
-                            texto = ""
-                            modo = ModoDesenho.Ver
-                        },
-                        aoEnviar = {
-                            val alvo = rascunho
-                            val mensagem = texto.trim()
-                            if (alvo != null && mensagem.isNotBlank()) {
-                                val pronto = alvo.copy(texto = mensagem, enviado = true)
-                                aoAtualizarPinos(pinos + pronto)
-                                aoEnviar(pronto, mensagem)
-                                rascunho = null
-                                texto = ""
-                                modo = ModoDesenho.Ver
-                            }
-                        },
-                        aoFoto = {
-                            val alvo = rascunho
-                            val mensagem = texto.trim()
-                            if (alvo != null && mensagem.isNotBlank()) {
-                                val pronto = alvo.copy(texto = mensagem, enviado = true)
-                                aoAtualizarPinos(pinos + pronto)
-                                aoFoto(pronto, mensagem)
-                                rascunho = null
-                                texto = ""
-                                modo = ModoDesenho.Ver
-                            }
-                        },
-                        aoVoltar = aoVoltar,
+                        x = x,
+                        y = y,
+                        tipo = modo,
                     )
+                    texto = ""
+                    painelAberto = true
+                }
+            },
+            aoArrastar = { ponto ->
+                if (modo == ModoDesenho.Lapis) tracoAtual = tracoAtual + ponto
+            },
+            aoSoltar = {
+                if (modo == ModoDesenho.Lapis) fecharTraco()
+            },
+        )
+
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .background(Branco.copy(alpha = 0.92f))
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.weight(1.2f)) { Botao("Projetos", preenchido = false, aoClicar = aoVoltar) }
+            Text(
+                quadro.codigo,
+                color = Preto,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(2f),
+            )
+            Box(Modifier.weight(1f)) {
+                Botao(if (pagina > 0) "Ant." else " ", preenchido = false, enabled = pagina > 0) {
+                    pagina = (pagina - 1).coerceAtLeast(0)
                 }
             }
-        } else {
-            Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                AreaPdf(
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
-                    bitmap = bitmap,
-                    falha = falha,
+            Text("${pagina + 1}/${max(folhas, 1)}", color = Cinza, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Box(Modifier.weight(1f)) {
+                Botao("Prox.", preenchido = false, enabled = pagina + 1 < folhas) {
+                    if (pagina + 1 < folhas) pagina += 1
+                }
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .background(Branco.copy(alpha = 0.96f))
+                .padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Chip("Ver", modo == ModoDesenho.Ver) { entrarModo(ModoDesenho.Ver) }
+                Chip("Desenhar", modo == ModoDesenho.Lapis) { entrarModo(ModoDesenho.Lapis) }
+                Chip("Erro", modo == ModoDesenho.Erro, Vermelho) { entrarModo(ModoDesenho.Erro) }
+                Chip("Mudanca", modo == ModoDesenho.Mudanca, Azul) { entrarModo(ModoDesenho.Mudanca) }
+                Chip(if (painelAberto) "Fechar" else "Enviar", painelAberto) { painelAberto = !painelAberto }
+            }
+            if (painelAberto) {
+                PainelApontamento(
+                    quadro = quadro,
                     modo = modo,
-                    escala = escala,
-                    deslocamento = deslocamento,
-                    transform = transform,
-                    pinos = pinosVisiveis,
-                    tracos = tracosPagina,
-                    tracoAtual = tracoAtual,
-                    aoToque = { x, y ->
-                        if (modo == ModoDesenho.Erro || modo == ModoDesenho.Mudanca) {
-                            rascunho = PinoDesenho(
-                                id = java.util.UUID.randomUUID().toString(),
-                                pagina = pagina,
-                                x = x,
-                                y = y,
-                                tipo = modo,
-                            )
-                            texto = ""
-                        }
+                    aoModo = { entrarModo(it) },
+                    pagina = pagina,
+                    folhas = folhas,
+                    aoPagina = { pagina = it },
+                    rascunho = rascunho,
+                    texto = texto,
+                    aoTexto = { texto = it },
+                    pinos = pinosPagina,
+                    tracosNaFolha = tracosPagina.size,
+                    aoLimparTracos = {
+                        aoAtualizarTracos(tracos.filterNot { it.pagina == pagina })
+                        tracoAtual = emptyList()
                     },
-                    aoArrastar = { ponto ->
-                        if (modo == ModoDesenho.Lapis) {
-                            tracoAtual = tracoAtual + ponto
-                        }
+                    aoCancelar = {
+                        rascunho = null
+                        texto = ""
+                        modo = ModoDesenho.Ver
                     },
-                    aoSoltar = {
-                        if (modo == ModoDesenho.Lapis) fecharTraco()
-                    },
-                )
-                Box(modifier = Modifier.fillMaxWidth().height(300.dp)) {
-                    PainelApontamento(
-                        quadro = quadro,
-                        modo = modo,
-                        aoModo = { entrarModo(it) },
-                        pagina = pagina,
-                        folhas = folhas,
-                        aoPagina = { pagina = it },
-                        rascunho = rascunho,
-                        texto = texto,
-                        aoTexto = { texto = it },
-                        pinos = pinosPagina,
-                        tracosNaFolha = tracosPagina.size,
-                        aoLimparTracos = {
-                            aoAtualizarTracos(tracos.filterNot { it.pagina == pagina })
-                            tracoAtual = emptyList()
-                        },
-                        aoCancelar = {
+                    aoEnviar = {
+                        val alvo = rascunho
+                        val mensagem = texto.trim()
+                        if (alvo != null && mensagem.isNotBlank()) {
+                            val pronto = alvo.copy(texto = mensagem, enviado = true)
+                            aoAtualizarPinos(pinos + pronto)
+                            aoEnviar(pronto, mensagem)
                             rascunho = null
                             texto = ""
                             modo = ModoDesenho.Ver
-                        },
-                        aoEnviar = {
-                            val alvo = rascunho
-                            val mensagem = texto.trim()
-                            if (alvo != null && mensagem.isNotBlank()) {
-                                val pronto = alvo.copy(texto = mensagem, enviado = true)
-                                aoAtualizarPinos(pinos + pronto)
-                                aoEnviar(pronto, mensagem)
-                                rascunho = null
-                                texto = ""
-                                modo = ModoDesenho.Ver
-                            }
-                        },
-                        aoFoto = {
-                            val alvo = rascunho
-                            val mensagem = texto.trim()
-                            if (alvo != null && mensagem.isNotBlank()) {
-                                val pronto = alvo.copy(texto = mensagem, enviado = true)
-                                aoAtualizarPinos(pinos + pronto)
-                                aoFoto(pronto, mensagem)
-                                rascunho = null
-                                texto = ""
-                                modo = ModoDesenho.Ver
-                            }
-                        },
-                        aoVoltar = aoVoltar,
-                    )
-                }
+                            painelAberto = false
+                        }
+                    },
+                    aoFoto = {
+                        val alvo = rascunho
+                        val mensagem = texto.trim()
+                        if (alvo != null && mensagem.isNotBlank()) {
+                            val pronto = alvo.copy(texto = mensagem, enviado = true)
+                            aoAtualizarPinos(pinos + pronto)
+                            aoFoto(pronto, mensagem)
+                            rascunho = null
+                            texto = ""
+                            modo = ModoDesenho.Ver
+                            painelAberto = false
+                        }
+                    },
+                    aoVoltar = aoVoltar,
+                )
             }
         }
     }
