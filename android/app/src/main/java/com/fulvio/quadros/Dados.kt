@@ -33,6 +33,7 @@ data class QuadroLocal(
     val vigenteId: String,
     val arquivoId: String,
     val revisaoTipo: String,
+    val caminho: String = "",
 )
 
 @Entity(tableName = "meta")
@@ -116,7 +117,7 @@ data class DiarioLocal(
     val ocorridoEm: String,
 )
 
-@Database(entities = [QuadroLocal::class, Meta::class, FilaLocal::class, DiarioLocal::class], version = 4)
+@Database(entities = [QuadroLocal::class, Meta::class, FilaLocal::class, DiarioLocal::class], version = 5)
 abstract class BancoLocal : RoomDatabase() {
     abstract fun dao(): QuadroDao
 }
@@ -223,6 +224,7 @@ fun baixarQuadros(base: String, token: String): List<QuadroLocal> {
             vigenteId = item.optString("revisao_vigente_id"),
             arquivoId = item.optString("arquivo_id"),
             revisaoTipo = item.optString("revisao_tipo"),
+            caminho = item.optString("caminho_projeto"),
         )
     }
 }

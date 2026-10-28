@@ -471,6 +471,7 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
                           ) AS arquivo_id,
                           rv.tipo AS revisao_tipo,
                           op.numero AS ordem_numero, c.nome AS cliente_nome,
+                          q.caminho_projeto,
                           u.nome AS responsavel_nome, b.nome AS bancada_nome
                    FROM quadro q
                    JOIN ordem_producao op ON op.id = q.ordem_producao_id

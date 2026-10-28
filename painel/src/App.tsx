@@ -1,4 +1,13 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
+
+function ondePortal(caminho?: string): string {
+  if (!caminho) return "";
+  const limpo = caminho.replaceAll("/", "\\");
+  const marca = "\\projetos elétricos\\";
+  const idx = limpo.toLowerCase().indexOf(marca);
+  const relativo = idx >= 0 ? limpo.slice(idx + marca.length) : limpo.replace(/^\\+/, "");
+  return relativo.replace(/\\PDF$/i, "").replaceAll("\\", " › ");
+}
 import { VisorPdf, apontamentoNoPdf, comentarioMarca, lerMarca, tipoMarca } from "./VisorPdf";
 
 type Tela = "quadros" | "quadro" | "revisoes" | "duvidas" | "bancadas" | "auditoria" | "pessoas";
@@ -10,6 +19,7 @@ type Quadro = {
   status: string;
   ordem_numero: string;
   cliente_nome: string;
+  caminho_projeto?: string;
   responsavel_nome: string | null;
   revisao_vigente_id: string | null;
   revisao_vigente_codigo: string | null;
@@ -694,7 +704,7 @@ export function App() {
                         <div>
                           <span className="codigo">{item.codigo}</span>
                           <span className="linha-sec">
-                            {item.cliente_nome} · OP {item.ordem_numero}
+                            {ondePortal(item.caminho_projeto) || `${item.cliente_nome} · OP ${item.ordem_numero}`}
                           </span>
                         </div>
                         {duvidas.filter((d) => d.quadro_id === item.id && !d.resposta).length > 0 ? (

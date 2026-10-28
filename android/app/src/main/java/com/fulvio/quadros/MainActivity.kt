@@ -488,13 +488,14 @@ private fun ListaProjetos(
 ) {
     val termo = busca.trim().lowercase()
     val visiveis = quadros.filter { quadro ->
-        termo.isBlank() || listOf(quadro.codigo, quadro.ordemNumero, quadro.clienteNome, quadro.responsavelNome)
+        termo.isBlank() || listOf(quadro.codigo, quadro.ordemNumero, quadro.clienteNome, quadro.responsavelNome, quadro.caminho, ondeEsta(quadro.caminho))
             .any { it.lowercase().contains(termo) }
     }
     Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(modifier = Modifier.weight(1f)) {
                 Text("Projetos em execução", color = Preto, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                Text("Pasta \\\\Srv3302\\projetos elétricos", color = Laranja, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 Text(
                     "$nome · ${if (offline) "Offline" else enlace}",
                     color = Cinza,
@@ -570,10 +571,11 @@ private fun CartaoProjeto(quadro: QuadroLocal, etapa: String, aoAbrir: () -> Uni
         ) {
             Text(quadro.codigo, color = Preto, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 2)
             Text(
-                quadro.clienteNome.ifBlank { "Sem cliente" },
-                color = Cinza,
-                fontSize = 14.sp,
-                maxLines = 1,
+                ondeEsta(quadro.caminho).ifBlank { quadro.clienteNome.ifBlank { "Sem pasta" } },
+                color = Laranja,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
             )
             SeloTexto(
                 when {
@@ -830,6 +832,15 @@ private fun IconeAba(aba: Aba, cor: androidx.compose.ui.graphics.Color) {
             }
         }
     }
+}
+
+private fun ondeEsta(caminho: String): String {
+    if (caminho.isBlank()) return ""
+    val limpo = caminho.replace("/", "\\")
+    val marca = "\\projetos elétricos\\"
+    val idx = limpo.lowercase().indexOf(marca)
+    val relativo = if (idx >= 0) limpo.substring(idx + marca.length) else limpo.trimStart('\\')
+    return relativo.removeSuffix("\\PDF").removeSuffix("\\pdf").replace("\\", " › ")
 }
 
 private fun horaLegivel(iso: String): String {
