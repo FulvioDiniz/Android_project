@@ -42,6 +42,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.foundation.layout.width
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -416,10 +418,17 @@ private fun Login(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text("QUADROS", color = Laranja, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            Text("Montagem em producao", color = Preto, fontSize = 34.sp, fontWeight = FontWeight.Bold)
+            Box(
+                modifier = Modifier
+                    .clip(FormaSelo)
+                    .background(Laranja)
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            ) {
+                Text("QUADROS", color = Branco, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            }
+            Text("Montagem em produção", color = Preto, fontSize = 34.sp, fontWeight = FontWeight.Bold)
             Text(
-                "Projetos da engenharia chegam na sync. Abra o PDF, desenhe, marque erros e mande.",
+                "Abra o desenho em tela cheia, marque e envie para a engenharia.",
                 color = Cinza,
                 fontSize = 16.sp,
             )
@@ -459,7 +468,7 @@ private fun ListaProjetos(
     Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("Projetos", color = Preto, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+                Text("Projetos em execução", color = Preto, fontSize = 28.sp, fontWeight = FontWeight.Bold)
                 Text(
                     "$nome · ${if (offline) "Offline" else enlace}",
                     color = Cinza,
@@ -471,7 +480,7 @@ private fun ListaProjetos(
             }
             Text("${quadros.size}", color = Laranja, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         }
-        Campo("Buscar codigo, OP ou cliente", busca, aoMudar = aoBusca)
+        Campo("Buscar código, OP ou cliente", busca, aoMudar = aoBusca)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Box(Modifier.weight(1f)) { Botao("Atualizar projetos", aoClicar = aoAtualizar) }
             Box(Modifier.weight(1f)) { Botao("Sair", preenchido = false, cor = Cinza, aoClicar = aoSair) }
@@ -514,39 +523,43 @@ private fun ListaProjetos(
 
 @Composable
 private fun CartaoProjeto(quadro: QuadroLocal, etapa: String, aoAbrir: () -> Unit) {
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
+            .shadow(4.dp, Forma)
             .clip(Forma)
             .background(Branco)
-            .border(1.5.dp, Borda, Forma)
-            .clickable(onClick = aoAbrir)
-            .padding(18.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+            .clickable(onClick = aoAbrir),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(6.dp)
-                .clip(FormaSelo)
+                .width(8.dp)
+                .height(118.dp)
                 .background(Laranja),
         )
-        Text(quadro.codigo, color = Preto, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        SeloTexto(
-            when {
-                quadro.vigenteCodigo.isNotBlank() -> "Rev ${quadro.vigenteCodigo}"
-                quadro.arquivoId.isNotBlank() -> "PDF disponivel"
-                else -> "Sem PDF"
-            },
-            quadro.vigenteCodigo.isNotBlank() || quadro.arquivoId.isNotBlank(),
-        )
-        Text(
-            "${quadro.clienteNome.ifBlank { "Sem cliente" }} · OP ${quadro.ordemNumero.ifBlank { "-" }}",
-            color = Cinza,
-            fontSize = 14.sp,
-        )
-        Text("Etapa $etapa", color = Preto, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-        Text("Abrir desenho ->", color = Laranja, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        Column(
+            modifier = Modifier.weight(1f).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(quadro.codigo, color = Preto, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 2)
+            Text(
+                quadro.clienteNome.ifBlank { "Sem cliente" },
+                color = Cinza,
+                fontSize = 14.sp,
+                maxLines = 1,
+            )
+            SeloTexto(
+                when {
+                    quadro.vigenteCodigo.isNotBlank() -> "Rev ${quadro.vigenteCodigo}"
+                    quadro.arquivoId.isNotBlank() -> "PDF pronto"
+                    else -> "Sem PDF"
+                },
+                quadro.vigenteCodigo.isNotBlank() || quadro.arquivoId.isNotBlank(),
+            )
+            Text(etapa, color = Preto, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        }
+        Text("›", color = Laranja, fontSize = 28.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(end = 16.dp))
     }
 }
 
@@ -737,16 +750,15 @@ private fun Barra(aba: Aba, temProjeto: Boolean, aoEscolher: (Aba) -> Unit) {
                     .weight(1f)
                     .height(72.dp)
                     .clip(FormaPequena)
-                    .background(if (ativa) LaranjaSuave else Branco)
-                    .then(if (ativa) Modifier.border(1.5.dp, Laranja, FormaPequena) else Modifier)
+                    .background(if (ativa) Laranja else Branco)
                     .clickable(enabled = liberada) { aoEscolher(item) },
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                IconeAba(item, if (liberada) Preto else Cinza)
+                IconeAba(item, if (ativa) Branco else if (liberada) Preto else Cinza)
                 Text(
                     item.rotulo,
-                    color = if (liberada) Preto else Cinza,
+                    color = if (ativa) Branco else if (liberada) Preto else Cinza,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                 )

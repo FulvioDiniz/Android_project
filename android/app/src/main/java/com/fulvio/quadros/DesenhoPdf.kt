@@ -41,6 +41,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -197,9 +199,9 @@ fun TelaDesenho(
         if (rascunho != null) painelAberto = true
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(Branco)) {
+    Box(modifier = Modifier.fillMaxSize().background(Fundo)) {
         AreaPdf(
-            modifier = Modifier.fillMaxSize().padding(top = 76.dp, bottom = 96.dp),
+            modifier = Modifier.fillMaxSize().padding(top = 64.dp, bottom = if (painelAberto) 250.dp else 84.dp),
             bitmap = bitmap,
             falha = falha,
             modo = modo,
@@ -234,29 +236,29 @@ fun TelaDesenho(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
-                .background(Branco.copy(alpha = 0.92f))
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .padding(horizontal = 12.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.weight(1.2f)) { Botao("Projetos", preenchido = false, aoClicar = aoVoltar) }
+            Pilula("Voltar", aoClicar = aoVoltar)
             Text(
                 quadro.codigo,
                 color = Preto,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(2f),
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
-            Box(Modifier.weight(1f)) {
-                Botao(if (pagina > 0) "Ant." else " ", preenchido = false, enabled = pagina > 0) {
-                    pagina = (pagina - 1).coerceAtLeast(0)
-                }
-            }
-            Text("${pagina + 1}/${max(folhas, 1)}", color = Cinza, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            Box(Modifier.weight(1f)) {
-                Botao("Prox.", preenchido = false, enabled = pagina + 1 < folhas) {
-                    if (pagina + 1 < folhas) pagina += 1
-                }
+            Pilula("‹", enabled = pagina > 0) { pagina = (pagina - 1).coerceAtLeast(0) }
+            Text(
+                "${pagina + 1} / ${max(folhas, 1)}",
+                color = Cinza,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            Pilula("›", enabled = pagina + 1 < folhas) {
+                if (pagina + 1 < folhas) pagina += 1
             }
         }
 
@@ -264,9 +266,12 @@ fun TelaDesenho(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .background(Branco.copy(alpha = 0.96f))
-                .padding(10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+                .padding(12.dp)
+                .shadow(10.dp, Forma)
+                .clip(Forma)
+                .background(Branco)
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Row(
                 modifier = Modifier.horizontalScroll(rememberScrollState()),
@@ -275,20 +280,20 @@ fun TelaDesenho(
                 Chip("Ver", modo == ModoDesenho.Ver) { entrarModo(ModoDesenho.Ver) }
                 Chip("Desenhar", modo == ModoDesenho.Lapis) { entrarModo(ModoDesenho.Lapis) }
                 Chip("Erro", modo == ModoDesenho.Erro, Vermelho) { entrarModo(ModoDesenho.Erro) }
-                Chip("Mudanca", modo == ModoDesenho.Mudanca, Azul) { entrarModo(ModoDesenho.Mudanca) }
+                Chip("Mudança", modo == ModoDesenho.Mudanca, Azul) { entrarModo(ModoDesenho.Mudanca) }
                 Chip(if (painelAberto) "Fechar" else "Enviar", painelAberto) { painelAberto = !painelAberto }
             }
             if (painelAberto) {
                 val alvo = rascunho
                 if (alvo == null) {
                     Text(
-                        "Escolha Erro ou Mudanca e toque no desenho.",
+                        "Escolha Erro ou Mudança e toque no desenho.",
                         color = Cinza,
                         fontSize = 14.sp,
                     )
                 } else {
                     Text(
-                        if (alvo.tipo == ModoDesenho.Erro) "Erro nesta folha" else "Mudanca nesta folha",
+                        if (alvo.tipo == ModoDesenho.Erro) "Erro nesta folha" else "Mudança nesta folha",
                         color = Preto,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
@@ -341,9 +346,9 @@ private fun AreaPdf(
     val density = LocalDensity.current
     Box(
         modifier = modifier
-            .clip(Forma)
+            .shadow(12.dp, Folha)
+            .clip(Folha)
             .background(Branco)
-            .border(1.5.dp, Borda, Forma)
             .clipToBounds(),
         contentAlignment = Alignment.Center,
     ) {
