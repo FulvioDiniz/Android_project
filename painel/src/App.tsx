@@ -207,7 +207,7 @@ async function api<T>(caminho: string, token: string, opcoes: RequestInit = {}):
 
 export function App() {
   const [sessao, setSessao] = useState<Sessao | null>(null);
-  const [tela, setTela] = useState<Tela>("quadros");
+  const [tela, setTela] = useState<Tela>("duvidas");
   const [quadroId, setQuadroId] = useState<string | null>(null);
   const [login, setLogin] = useState("ana.ribeiro");
   const [senha, setSenha] = useState("");
@@ -224,6 +224,7 @@ export function App() {
   const [arquivoPdfId, setArquivoPdfId] = useState<string | null>(null);
   const [caminhoProjeto, setCaminhoProjeto] = useState("");
   const marcaPdf = useRef("");
+  const abriuErro = useRef(false);
   const [pendentes, setPendentes] = useState<{ id: string; codigo: string; quadro_codigo: string }[]>([]);
   const [aprovadas, setAprovadas] = useState<{ id: string; codigo: string; quadro_codigo: string }[]>([]);
   const [tipos, setTipos] = useState<Record<string, string>>({});
@@ -317,6 +318,17 @@ export function App() {
       carregar(sessao.token).catch((falha: Error) => setErro(falha.message));
     }
   }, [sessao]);
+
+  useEffect(() => {
+    if (!sessao || abriuErro.current) return;
+    const recente = [...duvidas].reverse().find((item) => !item.resposta);
+    if (!recente) return;
+    abriuErro.current = true;
+    setTela("duvidas");
+    setErroFoco(recente.id);
+    setQuadroId(recente.quadro_id);
+    setFolhaFoco(lerMarca(recente.texto).marca?.folha ?? 1);
+  }, [sessao, duvidas]);
 
   useEffect(() => {
     if (!sessao) return;

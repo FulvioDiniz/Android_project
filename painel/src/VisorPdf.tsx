@@ -173,9 +173,19 @@ export function VisorPdf({
           {daFolha.map((item) =>
             item.pin ? (
               <g key={`pin-${item.id}`} className="clicavel" onClick={() => setPopupId(item.id)}>
-                <circle cx={item.pin.x} cy={item.pin.y} r="0.028" fill="transparent" />
-                <circle cx={item.pin.x} cy={item.pin.y} r="0.018" fill={item.tipo === "erro" ? "#c2410c" : "#0f766e"} />
-                <circle cx={item.pin.x} cy={item.pin.y} r="0.006" fill="#fff" />
+                <circle cx={item.pin.x} cy={item.pin.y} r="0.04" fill="transparent" />
+                <circle cx={item.pin.x} cy={item.pin.y} r="0.022" fill={item.tipo === "erro" ? "#c2410c" : "#0f766e"} stroke="#fff" strokeWidth="0.004" />
+                <text
+                  x={item.pin.x}
+                  y={item.pin.y}
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                  fontSize="0.018"
+                  fill="#fff"
+                  fontWeight="700"
+                >
+                  {daFolha.indexOf(item) + 1}
+                </text>
               </g>
             ) : null,
           )}
