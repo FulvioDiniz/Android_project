@@ -328,12 +328,12 @@ fun aplicarVigente(dao: QuadroDao, quadroId: String, vigenteId: String) {
 }
 
 fun baixarDiario(base: String, token: String): List<DiarioLocal> {
-    val lista = JSONArray(pedirTexto(base, "/api/observacoes?tipo=duvida", "GET", token, null))
+    val lista = JSONArray(pedirTexto(base, "/api/observacoes", "GET", token, null))
     return List(lista.length()) { i ->
         val item = lista.getJSONObject(i)
         DiarioLocal(
             id = item.getString("id"),
-            quadroId = item.getString("quadro_id"),
+            quadroId = item.optString("quadro_id"),
             tipo = item.optString("tipo"),
             texto = item.optString("texto"),
             resposta = item.optString("resposta"),
