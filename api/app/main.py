@@ -20,7 +20,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from app.backup import gerar_backup
 from app.db import agora, connect, hash_token, init_db
 from app.importacao import importar_pdf
-from app.varredura import PASTA_PADRAO, ler_estado_pasta
+from app.varredura import PASTA_PADRAO, ler_estado_pasta, rotulo_revisao_para_tela
 from app.liberacao import motivo_recusa_etapa, salto_de_relogio
 
 HASHER = PasswordHasher()
@@ -493,6 +493,9 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
                 vivos = []
                 for row in rows:
                     dados = dict(row)
+                    dados["revisao_vigente_codigo"] = rotulo_revisao_para_tela(
+                        dados.get("revisao_vigente_codigo")
+                    )
                     arquivo_id = (dados.get("arquivo_id") or "").strip()
                     if not arquivo_id:
                         continue
@@ -507,7 +510,14 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
                                 vivos.append(dados)
                 rows = vivos
             else:
-                rows = [dict(row) for row in rows]
+                limpos = []
+                for row in rows:
+                    dados = dict(row)
+                    dados["revisao_vigente_codigo"] = rotulo_revisao_para_tela(
+                        dados.get("revisao_vigente_codigo")
+                    )
+                    limpos.append(dados)
+                rows = limpos
             conn.commit()
         return JSONResponse(rows)
 
@@ -539,6 +549,9 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
             if row is None:
                 return erro(404, "nao_encontrado", "Quadro não encontrado.")
             dados = dict(row)
+            dados["revisao_vigente_codigo"] = rotulo_revisao_para_tela(
+                dados.get("revisao_vigente_codigo")
+            )
             arquivo_id = dados.get("arquivo_id")
             if not arquivo_id:
                 dados["arquivo_disponivel"] = True

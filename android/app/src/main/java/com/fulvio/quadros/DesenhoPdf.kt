@@ -537,7 +537,11 @@ private fun PainelApontamento(
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(quadro.codigo, color = Preto, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
             SeloTexto(
-                if (quadro.vigenteCodigo.isNotBlank()) "Rev ${quadro.vigenteCodigo}" else "PDF da pasta",
+                when {
+                    quadro.vigenteCodigo.trim().matches(Regex("^[A-Za-z0-9]{1,4}$")) ->
+                        "Rev ${quadro.vigenteCodigo.trim().uppercase()}"
+                    else -> "PDF da pasta"
+                },
                 quadro.arquivoId.isNotBlank(),
             )
         }

@@ -5,8 +5,23 @@ function ondePortal(caminho?: string): string {
   const limpo = caminho.replaceAll("/", "\\");
   const marca = "\\projetos elétricos\\";
   const idx = limpo.toLowerCase().indexOf(marca);
-  const relativo = idx >= 0 ? limpo.slice(idx + marca.length) : limpo.replace(/^\\+/, "");
-  return relativo.replace(/\\PDF$/i, "").replaceAll("\\", " › ");
+  let relativo = idx >= 0 ? limpo.slice(idx + marca.length) : limpo.replace(/^\\+/, "");
+  let stem = "";
+  const hash = relativo.lastIndexOf("#");
+  if (hash >= 0) {
+    stem = relativo.slice(hash + 1);
+    relativo = relativo.slice(0, hash);
+  }
+  const base = relativo.replace(/\\PDF$/i, "").replaceAll("\\", " › ");
+  if (stem && !base.toLowerCase().includes(stem.toLowerCase())) return `${base} › ${stem}`;
+  return base;
+}
+
+/** Só mostra Rev com código curto; sem REV no PDF não inventa "Rev 0". */
+function rotuloRev(codigo?: string | null): string | null {
+  const limpo = (codigo || "").trim();
+  if (/^[A-Za-z0-9]{1,4}$/.test(limpo)) return limpo.toUpperCase();
+  return null;
 }
 import { VisorPdf, apontamentoNoPdf, comentarioMarca, lerMarca, tipoMarca } from "./VisorPdf";
 
@@ -694,8 +709,9 @@ export function App() {
                     const temPendente = revisoes.some(
                       (rev) => rev.quadro_id === item.id && rev.status === "pendente",
                     );
-                    const seloTexto = item.revisao_vigente_codigo
-                      ? `Rev ${item.revisao_vigente_codigo}`
+                    const rev = rotuloRev(item.revisao_vigente_codigo);
+                    const seloTexto = rev
+                      ? `Rev ${rev}`
                       : temPendente
                         ? "Pendente"
                         : "Sem PDF";
@@ -747,8 +763,10 @@ export function App() {
                   {quadro.cliente_nome} · OP {quadro.ordem_numero}
                 </p>
               </div>
-              <span className={quadro.revisao_vigente_codigo ? "selo" : "selo selo-vazio"}>
-                {quadro.revisao_vigente_codigo ? `Rev ${quadro.revisao_vigente_codigo}` : "Sem vigente"}
+              <span className={rotuloRev(quadro.revisao_vigente_codigo) ? "selo" : "selo selo-vazio"}>
+                {rotuloRev(quadro.revisao_vigente_codigo)
+                  ? `Rev ${rotuloRev(quadro.revisao_vigente_codigo)}`
+                  : "Sem vigente"}
               </span>
             </header>
 

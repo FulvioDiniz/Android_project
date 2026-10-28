@@ -10,7 +10,14 @@ import uuid
 from pathlib import Path
 
 from app.db import agora
-from app.varredura import PASTA_PADRAO, caminho_configurado, pasta_aberta
+from app.varredura import (
+    PASTA_PADRAO,
+    caminho_configurado,
+    montar_caminho_projeto,
+    pasta_aberta,
+    stem_base_pdf,
+    _stem_ignorado,
+)
 
 IGNORAR_PREFIXOS = ("0.", "!", "@")
 STATUS_ATIVOS = frozenset(
@@ -128,32 +135,78 @@ def _pastas_para_projeto(projeto: dict, indice: list[tuple[str, Path]]) -> list[
     return achados
 
 
+def _stems_na_pasta(pasta_pdf: Path) -> list[str]:
+    """Um stem por nome-base distinto (REV.A/REV.B do mesmo PDF contam como um)."""
+    try:
+        pdfs = [
+            item
+            for item in pasta_pdf.iterdir()
+            if item.is_file() and item.suffix.lower() == ".pdf"
+        ]
+    except OSError:
+        return []
+    ordem: list[str] = []
+    vistos: set[str] = set()
+    for item in sorted(pdfs, key=lambda p: p.name.lower()):
+        stem = stem_base_pdf(item.name)
+        if _stem_ignorado(stem) or stem in vistos:
+            continue
+        vistos.add(stem)
+        ordem.append(stem)
+    return ordem
+
+
+def _titulo_quadro(pasta_pdf: Path, stem: str, varios: bool) -> str:
+    pasta_nome = pasta_pdf.parent.name
+    if not varios:
+        return pasta_nome
+    # Nome curto legível a partir do stem (última parte útil).
+    curto = stem
+    for sep in (" - ", "_", "-"):
+        if sep in stem and len(stem.split(sep)[-1]) >= 3:
+            curto = stem.split(sep)[-1]
+            break
+    if len(curto) > 80:
+        curto = curto[:77] + "…"
+    if curto.upper() == pasta_nome.upper():
+        return pasta_nome
+    return f"{pasta_nome} · {curto}"
+
+
 def descobrir_ativos(raiz: Path | None = None) -> list[dict[str, str]]:
-    """Projetos P&D em PCP/execução com pasta PDF na rede (última pasta por quadro)."""
+    """P&D PCP/execução + cada PDF distinto na pasta da rede vira um quadro."""
     base = Path(raiz or caminho_configurado())
     projetos = [p for p in _ler_projetos_pd() if _ativo_pcp_execucao(p)]
     indice = _indexar_pdfs(base)
     achados: list[dict[str, str]] = []
-    vistos_caminho: set[str] = set()
+    vistos_chave: set[str] = set()
     for projeto in projetos:
         nome = (projeto.get("nome_projeto") or projeto.get("obra") or "").strip()
         cliente = (projeto.get("cliente") or "Cliente").strip() or "Cliente"
         status = (projeto.get("status") or "").strip()
         for pasta_pdf in _pastas_para_projeto(projeto, indice):
-            chave = str(pasta_pdf).rstrip("\\/").lower()
-            if chave in vistos_caminho:
+            stems = _stems_na_pasta(pasta_pdf)
+            if not stems:
                 continue
-            vistos_caminho.add(chave)
-            achados.append(
-                {
-                    "cliente": cliente,
-                    "titulo": pasta_pdf.parent.name,
-                    "caminho": str(pasta_pdf),
-                    "status_pd": status,
-                    "nome_pd": nome,
-                    "numero": _numero_pedido(nome) or _numero_pedido(pasta_pdf.parent.name),
-                }
-            )
+            varios = len(stems) > 1
+            for stem in stems:
+                # Sempre ancora no stem: pasta com vários PDFs = vários cards no tablet.
+                caminho = montar_caminho_projeto(pasta_pdf, stem)
+                chave = caminho.rstrip("\\/").lower()
+                if chave in vistos_chave:
+                    continue
+                vistos_chave.add(chave)
+                achados.append(
+                    {
+                        "cliente": cliente,
+                        "titulo": _titulo_quadro(pasta_pdf, stem, varios),
+                        "caminho": caminho,
+                        "stem": stem,
+                        "status_pd": status,
+                        "nome_pd": nome,
+                        "numero": _numero_pedido(nome) or _numero_pedido(pasta_pdf.parent.name),
+                    }
+                )
     return achados
 
 
@@ -205,6 +258,19 @@ def sincronizar_pastas(conn, responsavel_id: str | None = None) -> dict:
 
     achados = descobrir_ativos(Path(caminho))
     caminhos_ativos = {item["caminho"].rstrip("\\/").lower() for item in achados}
+    # Aceita card antigo sem #STEM se a pasta ainda for a mesma e só houver um stem.
+    pastas_ativas = {c.split("#", 1)[0] for c in caminhos_ativos}
+
+    def _casa_ativo(chave_row: str) -> str | None:
+        if not chave_row:
+            return None
+        if chave_row in caminhos_ativos:
+            return chave_row
+        if "#" not in chave_row and chave_row in pastas_ativas:
+            candidatos = [c for c in caminhos_ativos if c.startswith(chave_row + "#")]
+            if len(candidatos) == 1:
+                return candidatos[0]
+        return None
 
     # Cancela o que não está em PCP/execução (limpa o monte importado antes).
     removidos = 0
@@ -213,7 +279,7 @@ def sincronizar_pastas(conn, responsavel_id: str | None = None) -> dict:
            WHERE status != 'cancelado'"""
     ).fetchall():
         chave = (row["caminho_projeto"] or "").rstrip("\\/").lower()
-        if chave and chave in caminhos_ativos:
+        if _casa_ativo(chave):
             continue
         # Mantém só se o código bater com algum título ativo sem caminho.
         if not chave and any(row["codigo"] == a["titulo"] for a in achados):
@@ -224,13 +290,14 @@ def sincronizar_pastas(conn, responsavel_id: str | None = None) -> dict:
         )
         removidos += 1
 
-    existentes = {
-        (row["caminho_projeto"] or "").rstrip("\\/").lower(): dict(row)
-        for row in conn.execute(
-            """SELECT id, codigo, titulo, caminho_projeto FROM quadro
-               WHERE caminho_projeto IS NOT NULL AND status != 'cancelado'"""
-        ).fetchall()
-    }
+    existentes: dict[str, dict] = {}
+    for row in conn.execute(
+        """SELECT id, codigo, titulo, caminho_projeto FROM quadro
+           WHERE caminho_projeto IS NOT NULL AND status != 'cancelado'"""
+    ).fetchall():
+        chave = (row["caminho_projeto"] or "").rstrip("\\/").lower()
+        alvo = _casa_ativo(chave) or chave
+        existentes[alvo] = dict(row)
 
     criados = 0
     ja = 0
@@ -239,18 +306,19 @@ def sincronizar_pastas(conn, responsavel_id: str | None = None) -> dict:
         chave = item["caminho"].rstrip("\\/").lower()
         if chave in existentes:
             atual = existentes[chave]
-            # Corrige nome genérico (ex.: "teste") para o da pasta.
-            if atual["codigo"] != item["titulo"] or atual["titulo"] != item["titulo"]:
-                codigo = item["titulo"]
+            codigo = item["titulo"]
+            if atual["codigo"] != item["titulo"] or atual["titulo"] != item["titulo"] or (
+                atual.get("caminho_projeto") or ""
+            ).rstrip("\\/").lower() != chave:
                 if conn.execute(
                     "SELECT 1 FROM quadro WHERE codigo = ? AND id != ?",
                     (codigo, atual["id"]),
                 ).fetchone():
                     codigo = _codigo_unico(conn, item["titulo"], item["cliente"], item["caminho"])
                 conn.execute(
-                    """UPDATE quadro SET codigo = ?, titulo = ?, atualizado_em = ?
+                    """UPDATE quadro SET codigo = ?, titulo = ?, caminho_projeto = ?, atualizado_em = ?
                        WHERE id = ?""",
-                    (codigo, item["titulo"], momento, atual["id"]),
+                    (codigo, item["titulo"], item["caminho"], momento, atual["id"]),
                 )
             ja += 1
             continue

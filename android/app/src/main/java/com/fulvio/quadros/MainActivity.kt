@@ -625,11 +625,11 @@ private fun CartaoProjeto(quadro: QuadroLocal, etapa: String, aoAbrir: () -> Uni
             )
             SeloTexto(
                 when {
-                    quadro.vigenteCodigo.isNotBlank() -> "Rev ${quadro.vigenteCodigo}"
+                    rotuloRev(quadro.vigenteCodigo) != null -> "Rev ${rotuloRev(quadro.vigenteCodigo)}"
                     quadro.arquivoId.isNotBlank() -> "PDF pronto"
                     else -> "Sem PDF"
                 },
-                quadro.vigenteCodigo.isNotBlank() || quadro.arquivoId.isNotBlank(),
+                rotuloRev(quadro.vigenteCodigo) != null || quadro.arquivoId.isNotBlank(),
             )
             Text(etapa, color = Preto, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         }
@@ -734,8 +734,8 @@ private fun TelaOficina(
         Cartao {
             Text(quadro.codigo, color = Preto, fontSize = 24.sp, fontWeight = FontWeight.Bold)
             SeloTexto(
-                if (quadro.vigenteCodigo.isNotBlank()) "Rev ${quadro.vigenteCodigo}" else "Sem vigente",
-                quadro.vigenteCodigo.isNotBlank(),
+                rotuloRev(quadro.vigenteCodigo)?.let { "Rev $it" } ?: "Sem vigente",
+                rotuloRev(quadro.vigenteCodigo) != null,
             )
             Text("Enlace: ${if (offline) "Offline" else enlace}", color = Cinza, fontSize = 14.sp)
             Text("Sync: ${horaLegivel(sync)}", color = Cinza, fontSize = 14.sp)
@@ -880,13 +880,28 @@ private fun IconeAba(aba: Aba, cor: androidx.compose.ui.graphics.Color) {
     }
 }
 
+private fun rotuloRev(codigo: String): String? {
+    val limpo = codigo.trim()
+    // Só selo Rev com letra/número curto; sem REV no PDF não inventa "Rev 0".
+    if (limpo.matches(Regex("^[A-Za-z0-9]{1,4}$"))) return limpo.uppercase()
+    return null
+}
+
 private fun ondeEsta(caminho: String): String {
     if (caminho.isBlank()) return ""
     val limpo = caminho.replace("/", "\\")
     val marca = "\\projetos elétricos\\"
     val idx = limpo.lowercase().indexOf(marca)
-    val relativo = if (idx >= 0) limpo.substring(idx + marca.length) else limpo.trimStart('\\')
-    return relativo.removeSuffix("\\PDF").removeSuffix("\\pdf").replace("\\", " › ")
+    var relativo = if (idx >= 0) limpo.substring(idx + marca.length) else limpo.trimStart('\\')
+    // caminho pode vir como ...\PDF#STEM — mostra o quadro separado.
+    val hash = relativo.lastIndexOf('#')
+    val stem = if (hash >= 0) {
+        val s = relativo.substring(hash + 1)
+        relativo = relativo.substring(0, hash)
+        s
+    } else ""
+    val base = relativo.removeSuffix("\\PDF").removeSuffix("\\pdf").replace("\\", " › ")
+    return if (stem.isNotBlank() && !base.contains(stem, ignoreCase = true)) "$base › $stem" else base
 }
 
 private fun horaLegivel(iso: String): String {

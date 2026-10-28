@@ -99,10 +99,55 @@ def _referencia_vigente(importada_em: str | None) -> datetime | None:
 
 
 def codigo_revisao_do_arquivo(nome: str) -> str:
-    achados = re.findall(r"(?i)REV\.([A-Za-z0-9]{1,4})", nome)
+    """Letra/número da REV no nome. Vazio se o PDF não tiver marcador REV."""
+    # Usa o stem para não confundir a extensão ".pdf" com REV.pdf.
+    achados = re.findall(r"(?i)REV\.([A-Za-z0-9]{1,4})", Path(nome).stem)
     if achados:
         return achados[-1].upper()
-    return nome
+    return ""
+
+
+def rotulo_revisao_para_tela(codigo: str | None) -> str:
+    """Só mostra Rev quando o código é uma revisão curta (A, B, 1…). Sem REV no nome = vazio."""
+    texto = (codigo or "").strip()
+    if re.fullmatch(r"[A-Za-z0-9]{1,4}", texto):
+        return texto.upper()
+    return ""
+
+
+def stem_base_pdf(nome: str) -> str:
+    """Agrupa variantes de REV do mesmo quadro; nomes diferentes viram stems diferentes."""
+    s = Path(nome).stem
+    s = re.sub(r"(?i)\s*\([^)]*\)\s*$", "", s)
+    s = re.sub(r"(?i)[\s_\-]*rev\.?[a-z0-9]{0,4}\s*$", "", s)
+    s = s.strip(" -_.")
+    return (s or Path(nome).stem).upper()
+
+
+def _stem_ignorado(stem: str) -> bool:
+    baixo = (stem or "").lower()
+    if not baixo:
+        return True
+    if "coment" in baixo:
+        return True
+    return False
+
+
+def partir_caminho_projeto(caminho: str) -> tuple[Path, str | None]:
+    """caminho_projeto pode ser 'pasta\\PDF' ou 'pasta\\PDF#STEM'."""
+    bruto = (caminho or "").strip()
+    if "#" in bruto:
+        base, stem = bruto.rsplit("#", 1)
+        stem = stem.strip()
+        return Path(base), stem.upper() if stem else None
+    return Path(bruto), None
+
+
+def montar_caminho_projeto(pasta_pdf: Path | str, stem: str | None = None) -> str:
+    base = str(pasta_pdf).rstrip("\\/")
+    if stem:
+        return f"{base}#{stem.upper()}"
+    return base
 
 
 IGNORAR_DESVIO = {
@@ -244,13 +289,14 @@ def _tratar_pdf(conn, raiz: Path, base: Path, grupo: str, codigo: str, pasta_pdf
         resultado = "Ainda não entrou"
         revisao_id = None
     if revisao_id is None and not tratado:
+        codigo_rev = codigo_revisao_do_arquivo(item.name) or item.name
         resposta = importar_no_quadro(
             conn,
             raiz,
             quadro_id,
             item.name,
             conteudo,
-            codigo_revisao_do_arquivo(item.name),
+            codigo_rev,
             "rede",
             None,
         )
@@ -297,12 +343,17 @@ def _peso_revisao(nome: str) -> tuple[int, int]:
     return (0, 0)
 
 
-def _pdf_mais_recente(pasta: Path) -> Path | None:
+def _pdf_mais_recente(pasta: Path, stem: str | None = None) -> Path | None:
     alvo = pasta / "PDF" if pasta.name.lower() != "pdf" and (pasta / "PDF").is_dir() else pasta
     try:
         pdfs = [item for item in alvo.iterdir() if item.is_file() and item.suffix.lower() == ".pdf"]
     except OSError:
         return None
+    if stem:
+        chave = stem.upper()
+        filtrados = [item for item in pdfs if stem_base_pdf(item.name) == chave]
+        # Se o stem sumiu da pasta, não pega PDF de outro quadro por engano.
+        pdfs = filtrados
     if not pdfs:
         return None
     # Prefere a letra/número da revisão; mtime só desempata.
@@ -342,14 +393,16 @@ def atualizar_caminhos_indicados(db_path: str, arquivos_dir: str) -> None:
         ).fetchall()
         for row in rows:
             try:
-                recente = _pdf_mais_recente(Path(row["caminho_projeto"]))
+                pasta, stem = partir_caminho_projeto(row["caminho_projeto"] or "")
+                recente = _pdf_mais_recente(pasta, stem)
                 if recente is None:
                     continue
                 conteudo = recente.read_bytes()
                 if not conteudo:
                     continue
                 digest = hashlib.sha256(conteudo).hexdigest()
-                codigo_rev = codigo_revisao_do_arquivo(recente.name)
+                # Sem REV no nome: guarda "_" internamente; a API não mostra "Rev 0".
+                codigo_rev = codigo_revisao_do_arquivo(recente.name) or "_"
                 existente = conn.execute(
                     "SELECT id FROM revisao WHERE quadro_id = ? AND codigo = ?",
                     (row["id"], codigo_rev),
