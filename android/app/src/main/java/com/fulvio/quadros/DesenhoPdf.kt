@@ -154,51 +154,11 @@ fun TelaDesenho(
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val largo = maxWidth >= 900.dp
-        val painel: @Composable () -> Unit = {
-            PainelApontamento(
-                quadro = quadro,
-                modo = modo,
-                aoModo = { entrarModo(it) },
-                pagina = pagina,
-                folhas = folhas,
-                aoPagina = { pagina = it },
-                rascunho = rascunho,
-                texto = texto,
-                aoTexto = { texto = it },
-                pinos = pinos.filter { it.pagina == pagina },
-                aoCancelar = {
-                    rascunho = null
-                    texto = ""
-                    modo = ModoDesenho.Ver
-                },
-                aoEnviar = {
-                    val alvo = rascunho ?: return@PainelApontamento
-                    val mensagem = texto.trim()
-                    if (mensagem.isBlank()) return@PainelApontamento
-                    val pronto = alvo.copy(texto = mensagem, enviado = true)
-                    aoAtualizarPinos(pinos + pronto)
-                    aoEnviar(pronto, mensagem)
-                    rascunho = null
-                    texto = ""
-                    modo = ModoDesenho.Ver
-                },
-                aoFoto = {
-                    val alvo = rascunho ?: return@PainelApontamento
-                    val mensagem = texto.trim()
-                    if (mensagem.isBlank()) return@PainelApontamento
-                    val pronto = alvo.copy(texto = mensagem, enviado = true)
-                    aoAtualizarPinos(pinos + pronto)
-                    aoFoto(pronto, mensagem)
-                    rascunho = null
-                    texto = ""
-                    modo = ModoDesenho.Ver
-                },
-                aoVoltar = aoVoltar,
-            )
-        }
+        val pinosPagina = pinos.filter { it.pagina == pagina }
+        val pinosVisiveis = pinosPagina + listOfNotNull(rascunho?.takeIf { it.pagina == pagina })
 
         if (largo) {
-            Row(Modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 AreaPdf(
                     modifier = Modifier.weight(1f).fillMaxHeight(),
                     bitmap = bitmap,
@@ -207,23 +167,67 @@ fun TelaDesenho(
                     escala = escala,
                     deslocamento = deslocamento,
                     transform = transform,
-                    pinos = pinos.filter { it.pagina == pagina } + listOfNotNull(rascunho?.takeIf { it.pagina == pagina }),
+                    pinos = pinosVisiveis,
                     aoToque = { x, y ->
-                        if (modo == ModoDesenho.Ver) return@AreaPdf
-                        rascunho = PinoDesenho(
-                            id = java.util.UUID.randomUUID().toString(),
-                            pagina = pagina,
-                            x = x,
-                            y = y,
-                            tipo = modo,
-                        )
-                        texto = ""
+                        if (modo != ModoDesenho.Ver) {
+                            rascunho = PinoDesenho(
+                                id = java.util.UUID.randomUUID().toString(),
+                                pagina = pagina,
+                                x = x,
+                                y = y,
+                                tipo = modo,
+                            )
+                            texto = ""
+                        }
                     },
                 )
-                Box(Modifier = Modifier.width(380.dp).fillMaxHeight()) { painel() }
+                Box(modifier = Modifier.width(380.dp).fillMaxHeight()) {
+                    PainelApontamento(
+                        quadro = quadro,
+                        modo = modo,
+                        aoModo = { entrarModo(it) },
+                        pagina = pagina,
+                        folhas = folhas,
+                        aoPagina = { pagina = it },
+                        rascunho = rascunho,
+                        texto = texto,
+                        aoTexto = { texto = it },
+                        pinos = pinosPagina,
+                        aoCancelar = {
+                            rascunho = null
+                            texto = ""
+                            modo = ModoDesenho.Ver
+                        },
+                        aoEnviar = {
+                            val alvo = rascunho
+                            val mensagem = texto.trim()
+                            if (alvo != null && mensagem.isNotBlank()) {
+                                val pronto = alvo.copy(texto = mensagem, enviado = true)
+                                aoAtualizarPinos(pinos + pronto)
+                                aoEnviar(pronto, mensagem)
+                                rascunho = null
+                                texto = ""
+                                modo = ModoDesenho.Ver
+                            }
+                        },
+                        aoFoto = {
+                            val alvo = rascunho
+                            val mensagem = texto.trim()
+                            if (alvo != null && mensagem.isNotBlank()) {
+                                val pronto = alvo.copy(texto = mensagem, enviado = true)
+                                aoAtualizarPinos(pinos + pronto)
+                                aoFoto(pronto, mensagem)
+                                rascunho = null
+                                texto = ""
+                                modo = ModoDesenho.Ver
+                            }
+                        },
+                        aoVoltar = aoVoltar,
+                    )
+                }
             }
         } else {
-            Column(Modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 AreaPdf(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                     bitmap = bitmap,
@@ -232,20 +236,64 @@ fun TelaDesenho(
                     escala = escala,
                     deslocamento = deslocamento,
                     transform = transform,
-                    pinos = pinos.filter { it.pagina == pagina } + listOfNotNull(rascunho?.takeIf { it.pagina == pagina }),
+                    pinos = pinosVisiveis,
                     aoToque = { x, y ->
-                        if (modo == ModoDesenho.Ver) return@AreaPdf
-                        rascunho = PinoDesenho(
-                            id = java.util.UUID.randomUUID().toString(),
-                            pagina = pagina,
-                            x = x,
-                            y = y,
-                            tipo = modo,
-                        )
-                        texto = ""
+                        if (modo != ModoDesenho.Ver) {
+                            rascunho = PinoDesenho(
+                                id = java.util.UUID.randomUUID().toString(),
+                                pagina = pagina,
+                                x = x,
+                                y = y,
+                                tipo = modo,
+                            )
+                            texto = ""
+                        }
                     },
                 )
-                Box(modifier = Modifier.fillMaxWidth().height(320.dp)) { painel() }
+                Box(modifier = Modifier.fillMaxWidth().height(320.dp)) {
+                    PainelApontamento(
+                        quadro = quadro,
+                        modo = modo,
+                        aoModo = { entrarModo(it) },
+                        pagina = pagina,
+                        folhas = folhas,
+                        aoPagina = { pagina = it },
+                        rascunho = rascunho,
+                        texto = texto,
+                        aoTexto = { texto = it },
+                        pinos = pinosPagina,
+                        aoCancelar = {
+                            rascunho = null
+                            texto = ""
+                            modo = ModoDesenho.Ver
+                        },
+                        aoEnviar = {
+                            val alvo = rascunho
+                            val mensagem = texto.trim()
+                            if (alvo != null && mensagem.isNotBlank()) {
+                                val pronto = alvo.copy(texto = mensagem, enviado = true)
+                                aoAtualizarPinos(pinos + pronto)
+                                aoEnviar(pronto, mensagem)
+                                rascunho = null
+                                texto = ""
+                                modo = ModoDesenho.Ver
+                            }
+                        },
+                        aoFoto = {
+                            val alvo = rascunho
+                            val mensagem = texto.trim()
+                            if (alvo != null && mensagem.isNotBlank()) {
+                                val pronto = alvo.copy(texto = mensagem, enviado = true)
+                                aoAtualizarPinos(pinos + pronto)
+                                aoFoto(pronto, mensagem)
+                                rascunho = null
+                                texto = ""
+                                modo = ModoDesenho.Ver
+                            }
+                        },
+                        aoVoltar = aoVoltar,
+                    )
+                }
             }
         }
     }
