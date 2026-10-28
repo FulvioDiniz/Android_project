@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { VisorPdf, lerMarca, type MarcaPdf } from "./VisorPdf";
+import { VisorPdf, comentarioMarca, lerMarca, tipoMarca, type MarcaPdf } from "./VisorPdf";
 
 type Tela = "quadros" | "quadro" | "revisoes" | "duvidas" | "bancadas" | "auditoria" | "pessoas";
 
@@ -232,6 +232,9 @@ export function App() {
   const [erros, setErros] = useState<{ id: string; nome_original: string; motivo: string }[]>([]);
   const [reconhecimento, setReconhecimento] = useState<Reconhecimento | null>(null);
   const [duvidas, setDuvidas] = useState<Duvida[]>([]);
+  const [erroFoco, setErroFoco] = useState<string | null>(null);
+  const [folhaFoco, setFolhaFoco] = useState(1);
+  const [filtroErro, setFiltroErro] = useState<"abertos" | "erros" | "todos">("abertos");
   const [pendenciasPainel, setPendenciasPainel] = useState<PendenciaPainel[]>([]);
   const [respostas, setRespostas] = useState<Record<string, string>>({});
   const [bancadas, setBancadas] = useState<BancadaAndamento[]>([]);
@@ -334,7 +337,7 @@ export function App() {
   }, [sessao, quadroId, quadros]);
 
   useEffect(() => {
-    if (!sessao || !quadroId || tela !== "quadro") return;
+    if (!sessao || !quadroId || (tela !== "quadro" && tela !== "duvidas")) return;
     let ativo = true;
     async function sincronizarPdf() {
       if (!sessao || !quadroId) return;
@@ -527,9 +530,9 @@ export function App() {
   const pendentesDoQuadro = pendentes.filter((item) => item.quadro_codigo === quadro?.codigo);
   const aprovadasDoQuadro = aprovadas.filter((item) => item.quadro_codigo === quadro?.codigo);
   const menus: { id: Tela; rotulo: string }[] = [
+    { id: "duvidas", rotulo: "Erros" },
     { id: "quadros", rotulo: "Projetos" },
     { id: "revisoes", rotulo: "Revisões" },
-    { id: "duvidas", rotulo: "Dúvidas" },
     { id: "bancadas", rotulo: "Bancadas" },
     { id: "auditoria", rotulo: "Auditoria" },
   ];
@@ -565,7 +568,7 @@ export function App() {
           {sessao.usuario.nome} · {sessao.perfil}
         </p>
       </header>
-      <main>
+      <main className={tela === "duvidas" || tela === "quadro" ? "main-largo" : undefined}>
         {erro ? <p className="aviso">{erro}</p> : null}
         {aviso ? <p className="ok">{aviso}</p> : null}
         {semResposta > 0 && tela !== "duvidas" ? (
@@ -682,9 +685,13 @@ export function App() {
                             {item.cliente_nome} · OP {item.ordem_numero}
                           </span>
                         </div>
-                        <span className={seloTexto === "Sem PDF" ? "selo selo-vazio" : "selo"}>
-                          {seloTexto}
-                        </span>
+                        {duvidas.filter((d) => d.quadro_id === item.id && !d.resposta).length > 0 ? (
+                          <span className="selo selo-erro">
+                            {duvidas.filter((d) => d.quadro_id === item.id && !d.resposta).length} em aberto
+                          </span>
+                        ) : (
+                          <span className={seloTexto === "Sem PDF" ? "selo selo-vazio" : "selo"}>{seloTexto}</span>
+                        )}
                         <button
                           type="button"
                           className="secundario"
@@ -723,45 +730,57 @@ export function App() {
               </span>
             </header>
 
-            <section className="bloco">
-              <h2>Do tablet</h2>
-              <p className="miudo">Erro, mudança e pendência que o montador enviou neste projeto.</p>
-              {duvidas.filter((item) => item.quadro_id === quadro.id).length === 0 &&
-              pendenciasPainel.filter((item) => item.quadro_id === quadro.id).length === 0 ? (
-                <p>Nada chegou deste projeto ainda. A lista atualiza sozinha.</p>
-              ) : null}
-              {duvidas
-                .filter((item) => item.quadro_id === quadro.id)
-                .map((item) => (
-                  <article key={item.id} className="apontamento">
-                    <p className="codigo-menor">{item.usuario}</p>
-                    <p className="texto-apontamento">{lerMarca(item.texto).visivel}</p>
-                    {item.resposta ? <p className="ok">Resposta: {item.resposta}</p> : <p className="aviso">Sem resposta</p>}
-                  </article>
-                ))}
-              {pendenciasPainel
-                .filter((item) => item.quadro_id === quadro.id)
-                .map((item) => (
-                  <article key={item.id} className="apontamento">
-                    <p className="codigo-menor">Pendência · {item.usuario}</p>
-                    <p>{item.descricao}</p>
-                    {podeResolver ? (
+            <div className="erros-layout">
+              <aside className="erros-lista">
+                <h2>Erros deste projeto</h2>
+                {duvidas.filter((item) => item.quadro_id === quadro.id).length === 0 ? (
+                  <p className="miudo">Nenhum erro do tablet neste projeto.</p>
+                ) : null}
+                {duvidas
+                  .filter((item) => item.quadro_id === quadro.id)
+                  .map((item) => {
+                    const tipo = tipoMarca(item.texto);
+                    const folha = lerMarca(item.texto).marca?.folha ?? 1;
+                    return (
                       <button
+                        key={item.id}
                         type="button"
-                        onClick={() =>
-                          api(`/api/pendencias/${item.id}/resolucao`, sessao.token, { method: "POST", body: "{}" })
-                            .then(() => carregar(sessao.token))
-                            .catch((falha: Error) => setErro(falha.message))
-                        }
+                        className={erroFoco === item.id ? "erro-card ativo" : "erro-card"}
+                        onClick={() => {
+                          setErroFoco(item.id);
+                          setFolhaFoco(folha);
+                        }}
                       >
-                        Marcar resolvida
+                        <span className={`tag tag-${tipo}`}>
+                          {tipo === "erro" ? "Erro" : tipo === "mudanca" ? "Mudança" : "Desenho"} · folha {folha}
+                        </span>
+                        <strong>{comentarioMarca(item.texto)}</strong>
+                        <span className="miudo">{item.resposta ? "Respondido" : "Sem resposta"} · {item.usuario}</span>
                       </button>
-                    ) : null}
-                  </article>
-                ))}
-            </section>
+                    );
+                  })}
+              </aside>
+              <div>
+                {pdfUrl ? (
+                  <VisorPdf
+                    url={pdfUrl}
+                    folha={folhaFoco}
+                    marcas={duvidas
+                      .filter((item) => item.quadro_id === quadro.id)
+                      .map((item) => lerMarca(item.texto).marca)
+                      .filter((item): item is MarcaPdf => item !== null)}
+                  />
+                ) : (
+                  <div className="vazio-estado">
+                    <h2>Sem desenho ainda</h2>
+                    <p>Quando o PDF da pasta entrar, as marcas aparecem aqui.</p>
+                  </div>
+                )}
+              </div>
+            </div>
 
-            <section className="bloco">
+            <details className="bloco">
+              <summary>Caminho da pasta e envio manual</summary>
               <h2>Caminho do projeto</h2>
               <p className="miudo">O supervisor indica a pasta. Um PDF novo lá substitui o da tela, sem publicar.</p>
               {engenharia ? (
@@ -779,22 +798,7 @@ export function App() {
               ) : (
                 <p>{caminhoProjeto || "Sem caminho"}</p>
               )}
-            </section>
-
-            {pdfUrl ? (
-              <VisorPdf
-                url={pdfUrl}
-                marcas={duvidas
-                  .filter((item) => item.quadro_id === quadro.id)
-                  .map((item) => lerMarca(item.texto).marca)
-                  .filter((item): item is MarcaPdf => item !== null)}
-              />
-            ) : (
-              <div className="vazio-estado">
-                <h2>Sem desenho ainda</h2>
-                <p>Guarde o caminho e salve um PDF na pasta, ou envie pelo painel.</p>
-              </div>
-            )}
+            </details>
 
             {engenharia ? (
               <form className="zona-envio" onSubmit={enviarPdf}>
@@ -1048,95 +1052,115 @@ export function App() {
           <>
             <header className="page-head">
               <div>
-                <h1>Apontamentos do tablet</h1>
-                <p className="intro">
-                  Erro e mudança enviados pelo montador. A lista atualiza sozinha a cada 10 segundos.
-                </p>
+                <h1>Erros do tablet</h1>
+                <p className="intro">Clique num item para ver a marca em cima do PDF.</p>
               </div>
-              <span className="contador">{semResposta} sem resposta</span>
+              <span className="contador">{semResposta} em aberto</span>
             </header>
-            {duvidas.length === 0 && pendenciasPainel.length === 0 ? (
+            <div className="filtros">
+              <button type="button" className={filtroErro === "abertos" ? "ativo" : "secundario"} onClick={() => setFiltroErro("abertos")}>
+                Em aberto
+              </button>
+              <button type="button" className={filtroErro === "erros" ? "ativo" : "secundario"} onClick={() => setFiltroErro("erros")}>
+                Só erros
+              </button>
+              <button type="button" className={filtroErro === "todos" ? "ativo" : "secundario"} onClick={() => setFiltroErro("todos")}>
+                Todos
+              </button>
+            </div>
+            {duvidas.length === 0 ? (
               <div className="vazio-estado">
-                <h2>Nada do tablet ainda</h2>
-                <p>Quando o montador marcar no desenho e tocar em enviar, aparece aqui.</p>
+                <h2>Nenhum erro ainda</h2>
+                <p>Quando o montador desenhar e enviar, aparece nesta lista.</p>
               </div>
-            ) : null}
-            <div className="lista-cartoes">
-              {duvidas.map((item) => {
-                const erro = item.texto.startsWith("[ERRO]");
-                const mudanca = item.texto.startsWith("[MUDANCA]") || item.texto.startsWith("[MUDANÇA]");
-                return (
-                  <article key={item.id} className={item.resposta ? "bloco" : "bloco destaque-criar"}>
-                    <p className="codigo-menor">
-                      {erro ? "Erro" : mudanca ? "Mudança" : "Dúvida"} · {item.quadro_codigo}
-                    </p>
-                    <p className="miudo">{item.usuario}</p>
-                    <p className="texto-apontamento">{lerMarca(item.texto).visivel}</p>
-                    {item.fotos.length > 0 ? (
-                      <p>{item.fotos.length === 1 ? "Uma foto anexada." : `${item.fotos.length} fotos anexadas.`}</p>
-                    ) : null}
-                    <button
-                      type="button"
-                      className="secundario"
-                      onClick={() => {
-                        setQuadroId(item.quadro_id);
-                        setTela("quadro");
+            ) : (
+              <div className="erros-layout">
+                <aside className="erros-lista">
+                  {duvidas
+                    .filter((item) => {
+                      if (filtroErro === "abertos") return !item.resposta;
+                      if (filtroErro === "erros") return tipoMarca(item.texto) === "erro";
+                      return true;
+                    })
+                    .map((item) => {
+                      const tipo = tipoMarca(item.texto);
+                      const folha = lerMarca(item.texto).marca?.folha ?? 1;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          className={erroFoco === item.id ? "erro-card ativo" : "erro-card"}
+                          onClick={() => {
+                            setErroFoco(item.id);
+                            setFolhaFoco(folha);
+                            setQuadroId(item.quadro_id);
+                          }}
+                        >
+                          <span className={`tag tag-${tipo}`}>
+                            {tipo === "erro" ? "Erro" : tipo === "mudanca" ? "Mudança" : "Desenho"} · folha {folha}
+                          </span>
+                          <strong>{item.quadro_codigo}</strong>
+                          <span>{comentarioMarca(item.texto)}</span>
+                          <span className="miudo">{item.resposta ? "Respondido" : "Sem resposta"} · {item.usuario}</span>
+                        </button>
+                      );
+                    })}
+                </aside>
+                <div className="erros-painel">
+                  {pdfUrl && quadroId ? (
+                    <VisorPdf
+                      url={pdfUrl}
+                      folha={folhaFoco}
+                      marcas={duvidas
+                        .filter((item) => item.quadro_id === quadroId)
+                        .map((item) => lerMarca(item.texto).marca)
+                        .filter((item): item is MarcaPdf => item !== null)}
+                    />
+                  ) : (
+                    <div className="vazio-estado">
+                      <h2>Escolha um erro</h2>
+                      <p>O PDF abre aqui, já na folha da marcação.</p>
+                    </div>
+                  )}
+                  {erroFoco ? (
+                    <form
+                      className="bloco"
+                      onSubmit={(evento) => {
+                        evento.preventDefault();
+                        const texto = (respostas[erroFoco] ?? "").trim();
+                        if (!texto) return;
+                        api(`/api/observacoes/${erroFoco}/resposta`, sessao.token, {
+                          method: "POST",
+                          body: JSON.stringify({ resposta: texto }),
+                        })
+                          .then(() => carregar(sessao.token))
+                          .catch((falha: Error) => setErro(falha.message));
                       }}
                     >
-                      Abrir projeto
-                    </button>
-                    {item.resposta ? (
-                      <p className="ok">Resposta: {item.resposta}</p>
-                    ) : engenharia ? (
-                      <>
-                        <label>
-                          Resposta
-                          <input
-                            value={respostas[item.id] ?? ""}
-                            onChange={(e) => setRespostas({ ...respostas, [item.id]: e.target.value })}
-                            placeholder="O que a engenharia responde"
-                          />
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            api(`/api/observacoes/${item.id}/resposta`, sessao.token, {
-                              method: "POST",
-                              body: JSON.stringify({ resposta: respostas[item.id] ?? "" }),
-                            })
-                              .then(() => carregar(sessao.token))
-                              .catch((falha: Error) => setErro(falha.message))
-                          }
-                        >
-                          Responder
-                        </button>
-                      </>
-                    ) : (
-                      <p>Sem resposta.</p>
-                    )}
-                  </article>
-                );
-              })}
-              {pendenciasPainel.map((item) => (
-                <article key={item.id} className="bloco">
-                  <p className="codigo-menor">Pendência · {item.quadro_codigo}</p>
-                  <p className="miudo">{item.usuario}</p>
-                  <p>{item.descricao}</p>
-                  {podeResolver ? (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        api(`/api/pendencias/${item.id}/resolucao`, sessao.token, { method: "POST", body: "{}" })
-                          .then(() => carregar(sessao.token))
-                          .catch((falha: Error) => setErro(falha.message))
-                      }
-                    >
-                      Marcar resolvida
-                    </button>
+                      <h2>Responder</h2>
+                      <p>{comentarioMarca(duvidas.find((item) => item.id === erroFoco)?.texto ?? "")}</p>
+                      {duvidas.find((item) => item.id === erroFoco)?.resposta ? (
+                        <p className="ok">Resposta: {duvidas.find((item) => item.id === erroFoco)?.resposta}</p>
+                      ) : engenharia ? (
+                        <>
+                          <label>
+                            Resposta para o montador
+                            <input
+                              value={respostas[erroFoco] ?? ""}
+                              onChange={(e) => setRespostas({ ...respostas, [erroFoco]: e.target.value })}
+                              placeholder="O que a engenharia decide"
+                            />
+                          </label>
+                          <button type="submit">Enviar resposta</button>
+                        </>
+                      ) : (
+                        <p>Sem resposta.</p>
+                      )}
+                    </form>
                   ) : null}
-                </article>
-              ))}
-            </div>
+                </div>
+              </div>
+            )}
           </>
         ) : null}
 

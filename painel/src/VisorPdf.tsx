@@ -36,15 +36,38 @@ export function lerMarca(texto: string): { visivel: string; marca: MarcaPdf | nu
   return { visivel: bruto, marca };
 }
 
-export function VisorPdf({ url, marcas }: { url: string; marcas: MarcaPdf[] }) {
+export function comentarioMarca(texto: string): string {
+  const visivel = lerMarca(texto).visivel;
+  const linhas = visivel
+    .split("\n")
+    .map((linha) => linha.trim())
+    .filter((linha) => linha && !linha.startsWith("["));
+  return linhas.join(" ") || "Sem comentário";
+}
+
+export function tipoMarca(texto: string): "erro" | "mudanca" | "desenho" {
+  if (texto.startsWith("[ERRO]")) return "erro";
+  if (texto.startsWith("[MUDANCA]") || texto.startsWith("[MUDANÇA]")) return "mudanca";
+  return "desenho";
+}
+
+export function VisorPdf({
+  url,
+  marcas,
+  folha,
+}: {
+  url: string;
+  marcas: MarcaPdf[];
+  folha?: number;
+}) {
   const tela = useRef<HTMLCanvasElement>(null);
   const [pagina, setPagina] = useState(1);
   const [total, setTotal] = useState(1);
   const [falha, setFalha] = useState("");
 
   useEffect(() => {
-    setPagina(1);
-  }, [url]);
+    setPagina(folha && folha > 0 ? folha : 1);
+  }, [url, folha]);
 
   useEffect(() => {
     const canvas = tela.current;
