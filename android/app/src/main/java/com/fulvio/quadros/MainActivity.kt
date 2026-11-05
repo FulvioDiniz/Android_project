@@ -45,6 +45,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -53,6 +54,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -89,11 +92,12 @@ class MainActivity : ComponentActivity() {
                 colorScheme = lightColorScheme(
                     primary = Laranja,
                     onPrimary = Branco,
-                    secondary = Laranja,
+                    secondary = Azul,
                     background = Fundo,
                     surface = Branco,
                     onBackground = Preto,
                     onSurface = Preto,
+                    outline = Borda,
                 ),
             ) {
                 Surface(modifier = Modifier.fillMaxSize(), color = Fundo) {
@@ -496,30 +500,30 @@ private fun Login(
         modifier = Modifier
             .fillMaxSize()
             .background(GradienteMarca)
-            .padding(24.dp),
+            .padding(horizontal = 24.dp, vertical = 28.dp),
     ) {
         val largo = maxWidth >= 720.dp
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .widthIn(max = if (largo) 480.dp else maxWidth)
+                .widthIn(max = if (largo) 460.dp else maxWidth)
                 .align(if (largo) Alignment.Center else Alignment.TopCenter)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
-            Box(
-                modifier = Modifier
-                    .clip(FormaSelo)
-                    .background(Laranja)
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-            ) {
-                Text("QUADROS", color = Branco, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-            }
-            Text("Montagem em produção", color = Preto, fontSize = 34.sp, fontWeight = FontWeight.Bold)
+            MarcaQuadros(48)
             Text(
-                "Abra o desenho em tela cheia, marque e envie para a engenharia.",
+                "Montagem em produção",
+                color = Preto,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = (-0.2).sp,
+            )
+            Text(
+                "Desenho em tela cheia, marca e envia direto para a engenharia.",
                 color = Cinza,
-                fontSize = 16.sp,
+                fontSize = 15.sp,
+                lineHeight = 22.sp,
             )
             Cartao {
                 Campo("Servidor", servidor, aoMudar = aoServidor)
@@ -527,7 +531,7 @@ private fun Login(
                 Campo("Senha", senha, senha = true, aoMudar = aoSenha)
                 Botao("Entrar e puxar projetos", aoClicar = aoEntrar)
                 if (erro.isNotBlank()) {
-                    Text(erro, color = Vermelho, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Text(erro, color = Vermelho, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -557,47 +561,15 @@ private fun ListaProjetos(
         termo.isBlank() || listOf(quadro.codigo, quadro.ordemNumero, quadro.clienteNome, quadro.responsavelNome, quadro.caminho, ondeEsta(quadro.caminho))
             .any { it.lowercase().contains(termo) }
     }
-    Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Projetos", color = Preto, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                Text(
-                    "$nome · ${if (offline) "Offline" else enlace}" +
-                        if (statusSync.isNotBlank()) " · $statusSync" else "",
-                    color = Cinza,
-                    fontSize = 13.sp,
-                    maxLines = 1,
-                )
-            }
-            Text("${visiveis.size}", color = Laranja, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-        }
+    Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        CabecalhoTela(
+            titulo = "Projetos",
+            subtitulo = "$nome · ${if (offline) "Offline" else enlace}" +
+                if (statusSync.isNotBlank()) " · $statusSync" else "",
+            direita = { ContadorBadge("${visiveis.size}") },
+        )
         if (novidade.isNotBlank()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(FormaPequena)
-                    .background(LaranjaSuave)
-                    .border(1.dp, Borda, FormaPequena)
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    "Atualização: $novidade",
-                    color = Preto,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 2,
-                )
-                Text(
-                    "OK",
-                    color = Laranja,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.clickable(onClick = aoDispensarNovidade).padding(6.dp),
-                )
-            }
+            FaixaAviso("Atualização: $novidade", aoDispensar = aoDispensarNovidade)
         }
         Campo("Buscar projeto", busca, aoMudar = aoBusca)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -627,8 +599,8 @@ private fun ListaProjetos(
                 val colunas = if (maxWidth >= 900.dp) 3 else if (maxWidth >= 600.dp) 2 else 1
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(colunas),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     items(visiveis, key = { it.id }) { quadro ->
@@ -645,41 +617,57 @@ private fun CartaoProjeto(quadro: QuadroLocal, etapa: String, aoAbrir: () -> Uni
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(4.dp, Forma)
+            .shadow(2.dp, Forma, ambientColor = Color(0x14000000), spotColor = Color(0x10000000))
             .clip(Forma)
             .background(Branco)
+            .border(1.dp, Borda, Forma)
             .clickable(onClick = aoAbrir),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             modifier = Modifier
-                .width(8.dp)
-                .height(118.dp)
-                .background(Laranja),
+                .width(5.dp)
+                .height(124.dp)
+                .background(Brush.verticalGradient(listOf(Laranja, LaranjaEscuro, Azul))),
         )
         Column(
-            modifier = Modifier.weight(1f).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.weight(1f).padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
         ) {
-            Text(quadro.codigo, color = Preto, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 2)
+            Text(
+                quadro.codigo,
+                color = Preto,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                letterSpacing = (-0.2).sp,
+            )
             Text(
                 ondeEsta(quadro.caminho).ifBlank { quadro.clienteNome.ifBlank { "Sem pasta" } },
-                color = Laranja,
+                color = Azul,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 2,
             )
-            SeloTexto(
-                when {
-                    rotuloRev(quadro.vigenteCodigo) != null -> "Rev ${rotuloRev(quadro.vigenteCodigo)}"
-                    quadro.arquivoId.isNotBlank() -> "PDF pronto"
-                    else -> "Sem PDF"
-                },
-                rotuloRev(quadro.vigenteCodigo) != null || quadro.arquivoId.isNotBlank(),
-            )
-            Text(etapa, color = Preto, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                SeloTexto(
+                    when {
+                        rotuloRev(quadro.vigenteCodigo) != null -> "Rev ${rotuloRev(quadro.vigenteCodigo)}"
+                        quadro.arquivoId.isNotBlank() -> "PDF pronto"
+                        else -> "Sem PDF"
+                    },
+                    rotuloRev(quadro.vigenteCodigo) != null || quadro.arquivoId.isNotBlank(),
+                )
+            }
+            Text(etapa, color = Cinza, fontSize = 12.sp, fontWeight = FontWeight.Medium)
         }
-        Text("›", color = Laranja, fontSize = 28.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(end = 16.dp))
+        Text(
+            "›",
+            color = Laranja,
+            fontSize = 26.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(end = 14.dp),
+        )
     }
 }
 
@@ -799,8 +787,7 @@ private fun TelaApontamentos(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Apontamentos", color = Preto, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        Text(quadro.codigo, color = Cinza, fontSize = 14.sp)
+        CabecalhoTela(titulo = "Apontamentos", subtitulo = quadro.codigo)
         Botao("Marcar / desenhar no PDF", aoClicar = aoDesenho)
         if (locais.isEmpty() && notas.isEmpty() && pinos.none { it.enviado }) {
             Cartao {
@@ -879,11 +866,14 @@ private fun TelaOficina(
         quadro.revisaoTipo in setOf("bloqueio", "reavaliacao")
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Text("Oficina", color = Preto, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+        CabecalhoTela(
+            titulo = "Oficina",
+            subtitulo = quadro.codigo,
+        )
         Cartao {
-            Text(quadro.codigo, color = Preto, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Text(quadro.codigo, color = Preto, fontSize = 22.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.2).sp)
             SeloTexto(
                 rotuloRev(quadro.vigenteCodigo)?.let { "Rev $it" } ?: "Sem vigente",
                 rotuloRev(quadro.vigenteCodigo) != null,
@@ -963,29 +953,42 @@ private fun Barra(aba: Aba, temProjeto: Boolean, aoEscolher: (Aba) -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .padding(horizontal = 10.dp, vertical = 8.dp)
+            .shadow(6.dp, FormaNav, ambientColor = Color(0x18000000), spotColor = Color(0x14000000))
+            .clip(FormaNav)
             .background(Branco)
-            .border(1.dp, Borda)
-            .padding(horizontal = 6.dp, vertical = 4.dp),
+            .border(1.dp, Borda, FormaNav)
+            .padding(horizontal = 6.dp, vertical = 6.dp),
     ) {
         Aba.entries.forEach { item ->
             val ativa = aba == item
             val liberada = item == Aba.Projetos || temProjeto
+            val corFundo by animateColorAsState(
+                targetValue = if (ativa) LaranjaSuave else Color.Transparent,
+                animationSpec = tween(180),
+                label = "abaFundo",
+            )
+            val corIcone by animateColorAsState(
+                targetValue = if (ativa) Laranja else if (liberada) Preto else CinzaClaro,
+                animationSpec = tween(180),
+                label = "abaIcone",
+            )
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .height(72.dp)
+                    .height(64.dp)
                     .clip(FormaPequena)
-                    .background(if (ativa) Laranja else Branco)
+                    .background(corFundo)
                     .clickable(enabled = liberada) { aoEscolher(item) },
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                IconeAba(item, if (ativa) Branco else if (liberada) Preto else Cinza)
+                IconeAba(item, corIcone)
                 Text(
                     item.rotulo,
-                    color = if (ativa) Branco else if (liberada) Preto else Cinza,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
+                    color = if (ativa) LaranjaEscuro else if (liberada) Preto else CinzaClaro,
+                    fontSize = 11.sp,
+                    fontWeight = if (ativa) FontWeight.Bold else FontWeight.SemiBold,
                 )
             }
         }

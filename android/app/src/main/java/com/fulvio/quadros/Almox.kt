@@ -26,6 +26,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -193,17 +195,15 @@ fun TelaAlmox(
 
     Column(
         modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Almoxarifado", color = Preto, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        Text(
-            "Projeto ${quadro.codigo} · peça cai na fila das meninas do estoque com horário",
-            color = Cinza,
-            fontSize = 13.sp,
+        CabecalhoTela(
+            titulo = "Almoxarifado",
+            subtitulo = "Projeto ${quadro.codigo} · entra na fila do estoque com horário",
         )
         Campo("Pesquisar no Firebird (código, nome ou modelo)", busca, aoMudar = { busca = it })
         if (status.isNotBlank()) {
-            Text(status, color = Laranja, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text(status, color = LaranjaEscuro, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         }
         if (erro.isNotBlank()) {
             Text(erro, color = Vermelho, fontSize = 13.sp, fontWeight = FontWeight.Bold)
@@ -212,9 +212,10 @@ fun TelaAlmox(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .clip(FormaPequena)
+                .shadow(2.dp, Forma, ambientColor = Color(0x14000000), spotColor = Color(0x10000000))
+                .clip(Forma)
                 .background(Branco)
-                .border(1.dp, Borda, FormaPequena),
+                .border(1.dp, Borda, Forma),
             verticalArrangement = Arrangement.spacedBy(0.dp),
         ) {
             items(resultados, key = { it.codigo }) { produto ->
@@ -268,10 +269,10 @@ fun TelaAlmox(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(max = 220.dp)
-                    .clip(FormaPequena)
+                    .clip(Forma)
                     .background(LaranjaSuave)
-                    .border(1.dp, Borda, FormaPequena)
-                    .padding(12.dp)
+                    .border(1.dp, Color(0xFFFFCDB8), Forma)
+                    .padding(14.dp)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
