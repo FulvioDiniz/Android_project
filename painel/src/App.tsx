@@ -309,6 +309,8 @@ export function App() {
   const [bancadaVinculo, setBancadaVinculo] = useState<Record<string, string>>({});
   const [pedidosAlmox, setPedidosAlmox] = useState<PedidoAlmox[]>([]);
   const [filtroAlmox, setFiltroAlmox] = useState<"fila" | "separando" | "entregue" | "todos">("fila");
+  const [almoxSaude, setAlmoxSaude] = useState<{ ok: boolean; host?: string; erro?: string } | null>(null);
+  const [almoxAtualizadoEm, setAlmoxAtualizadoEm] = useState("");
 
   async function carregar(token: string, quadroFiltro = filtroQuadro, acaoFiltro = filtroAcao) {
     const lista = await api<Quadro[]>("/api/quadros", token);
@@ -344,8 +346,14 @@ export function App() {
     }
     try {
       setPedidosAlmox(await api<PedidoAlmox[]>("/api/almox/pedidos?status=todos", token));
+      setAlmoxAtualizadoEm(new Date().toISOString());
     } catch {
       setPedidosAlmox([]);
+    }
+    try {
+      setAlmoxSaude(await api("/api/almox/saude", token));
+    } catch {
+      setAlmoxSaude({ ok: false, erro: "Sem resposta da API" });
     }
     try {
       setPendentes(await api("/api/revisoes?status=pendente", token));
@@ -402,7 +410,16 @@ export function App() {
       api<PendenciaPainel[]>("/api/pendencias?status=aberta", sessao.token)
         .then(setPendenciasPainel)
         .catch(() => undefined);
-    }, 10000);
+      api<PedidoAlmox[]>("/api/almox/pedidos?status=todos", sessao.token)
+        .then((lista) => {
+          setPedidosAlmox(lista);
+          setAlmoxAtualizadoEm(new Date().toISOString());
+        })
+        .catch(() => undefined);
+      api<{ ok: boolean; host?: string; erro?: string }>("/api/almox/saude", sessao.token)
+        .then(setAlmoxSaude)
+        .catch(() => undefined);
+    }, 8000);
     return () => window.clearInterval(id);
   }, [sessao]);
 
@@ -669,13 +686,18 @@ export function App() {
           {sessao.usuario.nome} · {sessao.perfil}
         </p>
       </header>
-      <main className={tela === "duvidas" || tela === "quadro" ? "main-largo" : undefined}>
+      <main className={tela === "duvidas" || tela === "quadro" || tela === "almox" ? "main-largo" : undefined}>
         {erro ? <p className="aviso">{erro}</p> : null}
         {aviso ? <p className="ok">{aviso}</p> : null}
         {semResposta > 0 && tela !== "duvidas" ? (
           <button type="button" className="inbox" onClick={() => ir("duvidas")}>
             {semResposta} apontamento{semResposta === 1 ? "" : "s"} do tablet sem resposta
             {pendenciasPainel.length > 0 ? ` · ${pendenciasPainel.length} pendência` : ""}
+          </button>
+        ) : null}
+        {naFilaAlmox > 0 && tela !== "almox" ? (
+          <button type="button" className="inbox inbox-almox" onClick={() => ir("almox")}>
+            {naFilaAlmox} pedido{naFilaAlmox === 1 ? "" : "s"} no almoxarifado aguardando
           </button>
         ) : null}
 
@@ -1308,12 +1330,37 @@ export function App() {
 
         {tela === "almox" ? (
           <>
-            <h1>Fila do almoxarifado</h1>
-            <p className="miudo">
-              Pedidos do tablet com horário. Quem atende muda o status (separando → entregue).
-            </p>
-            <section className="bloco">
-              <div className="acoes" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <div className="page-head almox-topo">
+              <div>
+                <h1>Fila do almoxarifado</h1>
+                <p className="miudo">
+                  Acompanhe os pedidos do tablet em tempo quase real. Horário em America/Sao_Paulo.
+                </p>
+              </div>
+              <div className="almox-resumo">
+                <div className="almox-kpi">
+                  <strong>{pedidosAlmox.filter((p) => p.status === "fila").length}</strong>
+                  <span>Na fila</span>
+                </div>
+                <div className="almox-kpi">
+                  <strong>{pedidosAlmox.filter((p) => p.status === "separando").length}</strong>
+                  <span>Separando</span>
+                </div>
+                <div className="almox-kpi">
+                  <strong>{pedidosAlmox.filter((p) => p.status === "entregue").length}</strong>
+                  <span>Entregues</span>
+                </div>
+              </div>
+            </div>
+            <section className="bloco almox-status-barra">
+              <p className={almoxSaude?.ok ? "ok" : "aviso"}>
+                Firebird: {almoxSaude?.ok ? `conectado (${almoxSaude.host ?? "PED.FDB"})` : `indisponível${almoxSaude?.erro ? ` · ${almoxSaude.erro}` : ""}`}
+              </p>
+              <p className="miudo">
+                Atualiza sozinho a cada 8s
+                {almoxAtualizadoEm ? ` · última ${horaBrasil(almoxAtualizadoEm)}` : ""}
+              </p>
+              <div className="filtros">
                 {(
                   [
                     ["fila", "Na fila"],
@@ -1321,43 +1368,63 @@ export function App() {
                     ["entregue", "Entregue"],
                     ["todos", "Todos"],
                   ] as const
-                ).map(([id, rotulo]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    className={filtroAlmox === id ? "ativo" : "secundario"}
-                    onClick={() => setFiltroAlmox(id)}
-                  >
-                    {rotulo}
-                  </button>
-                ))}
-                <button type="button" className="secundario" onClick={() => carregar(sessao.token).catch((f: Error) => setErro(f.message))}>
-                  Atualizar
+                ).map(([id, rotulo]) => {
+                  const qtd =
+                    id === "todos"
+                      ? pedidosAlmox.length
+                      : pedidosAlmox.filter((p) => p.status === id).length;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      className={filtroAlmox === id ? "ativo" : "secundario"}
+                      onClick={() => setFiltroAlmox(id)}
+                    >
+                      {rotulo} ({qtd})
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  className="secundario"
+                  onClick={() => carregar(sessao.token).catch((f: Error) => setErro(f.message))}
+                >
+                  Atualizar agora
                 </button>
               </div>
             </section>
-            {pedidosAlmoxVisiveis.length === 0 ? <p>Nenhum pedido neste filtro.</p> : null}
-            {pedidosAlmoxVisiveis.map((pedido) => (
-              <section key={pedido.id} className="bloco">
-                <article className="item">
-                  <p className="codigo-menor">
-                    {pedido.quadro_codigo} · {rotuloStatusAlmox(pedido.status)}
-                  </p>
-                  <p>
-                    Pedido em {horaBrasil(pedido.pedido_em)}
-                    {pedido.solicitante_nome ? ` · ${pedido.solicitante_nome}` : ""}
-                  </p>
-                  {pedido.observacao ? <p className="miudo">{pedido.observacao}</p> : null}
-                  <ul className="lista">
+            {pedidosAlmoxVisiveis.length === 0 ? (
+              <section className="bloco">
+                <p>Nenhum pedido neste filtro.</p>
+              </section>
+            ) : null}
+            <div className="almox-grade">
+              {pedidosAlmoxVisiveis.map((pedido) => (
+                <article key={pedido.id} className={`almox-card status-${pedido.status}`}>
+                  <header className="almox-card-topo">
+                    <div>
+                      <p className="codigo-menor">{pedido.quadro_codigo}</p>
+                      <p className="miudo">
+                        {horaBrasil(pedido.pedido_em)}
+                        {pedido.solicitante_nome ? ` · ${pedido.solicitante_nome}` : ""}
+                      </p>
+                    </div>
+                    <span className={`tag tag-almox tag-${pedido.status}`}>{rotuloStatusAlmox(pedido.status)}</span>
+                  </header>
+                  {pedido.observacao ? <p className="almox-obs">{pedido.observacao}</p> : null}
+                  <ul className="lista almox-itens">
                     {pedido.itens.map((item) => (
                       <li key={item.id}>
-                        <strong>{item.codigo}</strong> — {item.nome} · {item.quantidade} {item.unidade}
-                        {item.saldo_visto != null ? ` (saldo visto ${item.saldo_visto})` : ""}
-                        {item.modelo ? ` · ${item.modelo}` : ""}
+                        <strong>{item.codigo}</strong>
+                        <span>
+                          {item.nome} · {item.quantidade} {item.unidade}
+                          {item.saldo_visto != null ? ` · saldo ${item.saldo_visto}` : ""}
+                          {item.modelo ? ` · ${item.modelo}` : ""}
+                        </span>
                       </li>
                     ))}
                   </ul>
-                  <div className="acoes" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                  <div className="acoes almox-acoes">
                     {pedido.status === "fila" ? (
                       <button type="button" onClick={() => atualizarStatusAlmox(pedido.id, "separando")}>
                         Separar
@@ -1369,14 +1436,18 @@ export function App() {
                       </button>
                     ) : null}
                     {pedido.status !== "cancelado" && pedido.status !== "entregue" ? (
-                      <button type="button" className="secundario" onClick={() => atualizarStatusAlmox(pedido.id, "cancelado")}>
+                      <button
+                        type="button"
+                        className="secundario"
+                        onClick={() => atualizarStatusAlmox(pedido.id, "cancelado")}
+                      >
                         Cancelar
                       </button>
                     ) : null}
                   </div>
                 </article>
-              </section>
-            ))}
+              ))}
+            </div>
           </>
         ) : null}
 

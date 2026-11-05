@@ -707,3 +707,158 @@ button.erro-card {
 .chat-acoes button {
   margin: 0;
 }
+
+.inbox-almox {
+  background: #fff1e8;
+  border-color: #ffcdb8;
+  color: #d9481a;
+}
+
+.almox-topo {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: end;
+  margin-bottom: 8px;
+}
+
+.almox-resumo {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.almox-kpi {
+  min-width: 88px;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid #d5dce5;
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.almox-kpi strong {
+  font-size: 22px;
+  color: #f05a28;
+  line-height: 1.1;
+}
+
+.almox-kpi span {
+  font-size: 12px;
+  color: #5c6570;
+  font-weight: 600;
+}
+
+.almox-status-barra {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.almox-grade {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 14px;
+}
+
+.almox-card {
+  background: #fff;
+  border: 1px solid #d5dce5;
+  border-radius: 16px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.almox-card.status-fila {
+  border-left: 4px solid #f05a28;
+}
+
+.almox-card.status-separando {
+  border-left: 4px solid #0e7490;
+}
+
+.almox-card.status-entregue {
+  border-left: 4px solid #0f7a45;
+}
+
+.almox-card.status-cancelado {
+  border-left: 4px solid #8a939e;
+  opacity: 0.85;
+}
+
+.almox-card-topo {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+}
+
+.almox-obs {
+  margin: 0;
+  padding: 10px 12px;
+  background: #f7f9fb;
+  border-radius: 10px;
+  font-size: 14px;
+}
+
+.almox-itens {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.almox-itens li {
+  margin-bottom: 6px;
+}
+
+.almox-itens strong {
+  display: inline-block;
+  min-width: 64px;
+  color: #f05a28;
+}
+
+.almox-acoes {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.almox-acoes button {
+  margin: 0;
+}
+
+.tag-almox {
+  white-space: nowrap;
+}
+
+.tag-fila {
+  background: #ffefe8;
+  color: #d9481a;
+}
+
+.tag-separando {
+  background: #e0f2fe;
+  color: #0e7490;
+}
+
+.tag-entregue {
+  background: #dcfce7;
+  color: #0f7a45;
+}
+
+.tag-cancelado {
+  background: #f0f3f6;
+  color: #5c6570;
+}
+
+@media (max-width: 800px) {
+  .almox-topo {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
