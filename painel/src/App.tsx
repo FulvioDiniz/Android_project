@@ -25,7 +25,29 @@ function rotuloRev(codigo?: string | null): string | null {
 }
 import { VisorPdf, apontamentoNoPdf, comentarioMarca, lerMarca, tipoMarca } from "./VisorPdf";
 
-type Tela = "quadros" | "quadro" | "revisoes" | "duvidas" | "bancadas" | "auditoria" | "pessoas";
+type Tela = "quadros" | "quadro" | "revisoes" | "duvidas" | "almox" | "bancadas" | "auditoria" | "pessoas";
+
+type PedidoAlmoxItem = {
+  id: string;
+  codigo: string;
+  nome: string;
+  unidade: string;
+  quantidade: number;
+  saldo_visto: number | null;
+  modelo: string;
+};
+
+type PedidoAlmox = {
+  id: string;
+  quadro_id: string;
+  quadro_codigo: string;
+  solicitante_nome: string;
+  status: string;
+  observacao: string;
+  pedido_em: string;
+  atualizado_em: string;
+  itens: PedidoAlmoxItem[];
+};
 
 type Quadro = {
   id: string;
@@ -149,6 +171,7 @@ const ACOES: Record<string, string> = {
   importacao: "Recebeu o PDF",
   erro_importacao: "Mandou o nome para validação",
   desbloqueio: "Tirou a trava",
+  pedido_almox: "Pediu peça ao almox",
 };
 
 const FILTROS = [
@@ -284,6 +307,8 @@ export function App() {
   const [novaSenha, setNovaSenha] = useState("");
   const [novoPerfil, setNovoPerfil] = useState("montagem");
   const [bancadaVinculo, setBancadaVinculo] = useState<Record<string, string>>({});
+  const [pedidosAlmox, setPedidosAlmox] = useState<PedidoAlmox[]>([]);
+  const [filtroAlmox, setFiltroAlmox] = useState<"fila" | "separando" | "entregue" | "todos">("fila");
 
   async function carregar(token: string, quadroFiltro = filtroQuadro, acaoFiltro = filtroAcao) {
     const lista = await api<Quadro[]>("/api/quadros", token);
@@ -316,6 +341,11 @@ export function App() {
       setPendenciasPainel(await api<PendenciaPainel[]>("/api/pendencias?status=aberta", token));
     } catch {
       setPendenciasPainel([]);
+    }
+    try {
+      setPedidosAlmox(await api<PedidoAlmox[]>("/api/almox/pedidos?status=todos", token));
+    } catch {
+      setPedidosAlmox([]);
     }
     try {
       setPendentes(await api("/api/revisoes?status=pendente", token));
@@ -576,14 +606,37 @@ export function App() {
     : quadros;
   const pendentesDoQuadro = pendentes.filter((item) => item.quadro_codigo === quadro?.codigo);
   const aprovadasDoQuadro = aprovadas.filter((item) => item.quadro_codigo === quadro?.codigo);
+  const naFilaAlmox = pedidosAlmox.filter((p) => p.status === "fila" || p.status === "separando").length;
+  const pedidosAlmoxVisiveis =
+    filtroAlmox === "todos"
+      ? pedidosAlmox
+      : pedidosAlmox.filter((p) => p.status === filtroAlmox);
   const menus: { id: Tela; rotulo: string }[] = [
     { id: "duvidas", rotulo: "Erros" },
+    { id: "almox", rotulo: "Almox" },
     { id: "quadros", rotulo: "Projetos" },
     { id: "revisoes", rotulo: "Revisões" },
     { id: "bancadas", rotulo: "Bancadas" },
     { id: "auditoria", rotulo: "Auditoria" },
   ];
   if (sessao.perfil === "admin") menus.push({ id: "pessoas", rotulo: "Pessoas" });
+
+  function rotuloStatusAlmox(status: string): string {
+    if (status === "fila") return "Na fila";
+    if (status === "separando") return "Separando";
+    if (status === "entregue") return "Entregue";
+    if (status === "cancelado") return "Cancelado";
+    return status;
+  }
+
+  function atualizarStatusAlmox(pedidoId: string, status: string) {
+    api<PedidoAlmox>(`/api/almox/pedidos/${pedidoId}/status`, sessao.token, {
+      method: "POST",
+      body: JSON.stringify({ status }),
+    })
+      .then(() => carregar(sessao.token))
+      .catch((falha: Error) => setErro(falha.message));
+  }
 
   function ir(destino: Tela) {
     setErro("");
@@ -605,6 +658,7 @@ export function App() {
             >
               {item.rotulo}
               {item.id === "duvidas" && semResposta > 0 ? ` (${semResposta})` : ""}
+              {item.id === "almox" && naFilaAlmox > 0 ? ` (${naFilaAlmox})` : ""}
             </button>
           ))}
           <button type="button" className="secundario" onClick={sair}>
@@ -1249,6 +1303,80 @@ export function App() {
                 </div>
               </div>
             )}
+          </>
+        ) : null}
+
+        {tela === "almox" ? (
+          <>
+            <h1>Fila do almoxarifado</h1>
+            <p className="miudo">
+              Pedidos do tablet com horário. Quem atende muda o status (separando → entregue).
+            </p>
+            <section className="bloco">
+              <div className="acoes" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {(
+                  [
+                    ["fila", "Na fila"],
+                    ["separando", "Separando"],
+                    ["entregue", "Entregue"],
+                    ["todos", "Todos"],
+                  ] as const
+                ).map(([id, rotulo]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    className={filtroAlmox === id ? "ativo" : "secundario"}
+                    onClick={() => setFiltroAlmox(id)}
+                  >
+                    {rotulo}
+                  </button>
+                ))}
+                <button type="button" className="secundario" onClick={() => carregar(sessao.token).catch((f: Error) => setErro(f.message))}>
+                  Atualizar
+                </button>
+              </div>
+            </section>
+            {pedidosAlmoxVisiveis.length === 0 ? <p>Nenhum pedido neste filtro.</p> : null}
+            {pedidosAlmoxVisiveis.map((pedido) => (
+              <section key={pedido.id} className="bloco">
+                <article className="item">
+                  <p className="codigo-menor">
+                    {pedido.quadro_codigo} · {rotuloStatusAlmox(pedido.status)}
+                  </p>
+                  <p>
+                    Pedido em {horaBrasil(pedido.pedido_em)}
+                    {pedido.solicitante_nome ? ` · ${pedido.solicitante_nome}` : ""}
+                  </p>
+                  {pedido.observacao ? <p className="miudo">{pedido.observacao}</p> : null}
+                  <ul className="lista">
+                    {pedido.itens.map((item) => (
+                      <li key={item.id}>
+                        <strong>{item.codigo}</strong> — {item.nome} · {item.quantidade} {item.unidade}
+                        {item.saldo_visto != null ? ` (saldo visto ${item.saldo_visto})` : ""}
+                        {item.modelo ? ` · ${item.modelo}` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="acoes" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                    {pedido.status === "fila" ? (
+                      <button type="button" onClick={() => atualizarStatusAlmox(pedido.id, "separando")}>
+                        Separar
+                      </button>
+                    ) : null}
+                    {pedido.status === "fila" || pedido.status === "separando" ? (
+                      <button type="button" onClick={() => atualizarStatusAlmox(pedido.id, "entregue")}>
+                        Entregue
+                      </button>
+                    ) : null}
+                    {pedido.status !== "cancelado" && pedido.status !== "entregue" ? (
+                      <button type="button" className="secundario" onClick={() => atualizarStatusAlmox(pedido.id, "cancelado")}>
+                        Cancelar
+                      </button>
+                    ) : null}
+                  </div>
+                </article>
+              </section>
+            ))}
           </>
         ) : null}
 

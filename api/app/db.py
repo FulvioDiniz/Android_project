@@ -211,6 +211,34 @@ CREATE TABLE IF NOT EXISTS foto (
     recebido_em TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS pedido_almox (
+    id TEXT PRIMARY KEY,
+    quadro_id TEXT NOT NULL,
+    quadro_codigo TEXT NOT NULL DEFAULT '',
+    solicitante_id TEXT NOT NULL,
+    solicitante_nome TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'fila',
+    observacao TEXT NOT NULL DEFAULT '',
+    pedido_em TEXT NOT NULL,
+    atualizado_em TEXT NOT NULL,
+    atendido_por TEXT,
+    atendido_em TEXT
+);
+
+CREATE TABLE IF NOT EXISTS pedido_almox_item (
+    id TEXT PRIMARY KEY,
+    pedido_id TEXT NOT NULL,
+    codigo TEXT NOT NULL,
+    nome TEXT NOT NULL,
+    unidade TEXT NOT NULL DEFAULT 'UN',
+    quantidade REAL NOT NULL,
+    saldo_visto REAL,
+    modelo TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS ix_pedido_almox_status ON pedido_almox (status, pedido_em);
+CREATE INDEX IF NOT EXISTS ix_pedido_almox_quadro ON pedido_almox (quadro_id, pedido_em);
+
 CREATE TABLE IF NOT EXISTS pendencia (
     id TEXT PRIMARY KEY,
     quadro_id TEXT NOT NULL,

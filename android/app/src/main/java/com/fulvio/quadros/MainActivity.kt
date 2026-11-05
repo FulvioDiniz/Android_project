@@ -76,6 +76,7 @@ private enum class Aba(val rotulo: String) {
     Projetos("Projetos"),
     Desenho("Desenho"),
     Apontar("Apontar"),
+    Almox("Almox"),
     Oficina("Oficina"),
 }
 
@@ -437,6 +438,11 @@ private fun Tela(dao: QuadroDao) {
                                 recarregar()
                             }
                         },
+                    )
+                    aba == Aba.Almox -> TelaAlmox(
+                        quadro = aberto!!,
+                        servidor = servidor,
+                        token = token,
                     )
                     else -> TelaOficina(
                         quadro = aberto!!,
@@ -1016,6 +1022,11 @@ private fun IconeAba(aba: Aba, cor: androidx.compose.ui.graphics.Color) {
                 drawCircle(color = cor, radius = size.minDimension / 2.2f, style = traco)
                 drawLine(cor, Offset(size.width * 0.5f, size.height * 0.28f), Offset(size.width * 0.5f, size.height * 0.55f), 1.7.dp.toPx())
                 drawCircle(color = cor, radius = 2.2.dp.toPx(), center = Offset(size.width * 0.5f, size.height * 0.7f))
+            }
+            Aba.Almox -> {
+                drawRoundRect(color = cor, cornerRadius = CornerRadius(2.dp.toPx()), style = traco)
+                drawLine(cor, Offset(size.width * 0.2f, size.height * 0.38f), Offset(size.width * 0.8f, size.height * 0.38f), 1.7.dp.toPx())
+                drawLine(cor, Offset(size.width * 0.2f, size.height * 0.62f), Offset(size.width * 0.8f, size.height * 0.62f), 1.7.dp.toPx())
             }
             Aba.Oficina -> {
                 drawRoundRect(color = cor, cornerRadius = CornerRadius(3.dp.toPx()), style = traco)

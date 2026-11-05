@@ -497,16 +497,16 @@ private fun sha256(arquivo: File): String {
     return digest.digest().joinToString("") { "%02x".format(it) }
 }
 
-private fun pedir(base: String, caminho: String, metodo: String, token: String?, corpo: String?): JSONObject {
+fun pedir(base: String, caminho: String, metodo: String, token: String?, corpo: String?): JSONObject {
     return JSONObject(pedirTexto(base, caminho, metodo, token, corpo))
 }
 
-private fun pedirTexto(base: String, caminho: String, metodo: String, token: String?, corpo: String?): String {
+fun pedirTexto(base: String, caminho: String, metodo: String, token: String?, corpo: String?): String {
     val url = URL(base.trimEnd('/') + caminho)
     val conexao = url.openConnection() as HttpURLConnection
     conexao.requestMethod = metodo
-    conexao.connectTimeout = 8000
-    conexao.readTimeout = 8000
+    conexao.connectTimeout = 12000
+    conexao.readTimeout = 25000
     conexao.setRequestProperty("Accept", "application/json")
     if (token != null) {
         conexao.setRequestProperty("Authorization", "Bearer $token")

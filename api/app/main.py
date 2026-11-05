@@ -22,6 +22,7 @@ from app.db import agora, connect, hash_token, init_db
 from app.importacao import importar_pdf
 from app.varredura import PASTA_PADRAO, ler_estado_pasta, rotulo_revisao_para_tela
 from app.liberacao import motivo_recusa_etapa, salto_de_relogio
+from app.firebird_produtos import pesquisar_produtos, status_conexao as status_firebird
 
 HASHER = PasswordHasher()
 COOKIE = "quadros_sessao"
@@ -2005,6 +2006,204 @@ def create_app(db_path: str | None = None, arquivos_dir: str | None = None) -> F
                 )
             conn.commit()
         return JSONResponse(saida)
+
+    def _pedido_almox_json(conn, pedido_id: str) -> dict[str, Any] | None:
+        row = conn.execute("SELECT * FROM pedido_almox WHERE id = ?", (pedido_id,)).fetchone()
+        if row is None:
+            return None
+        itens = [
+            dict(item)
+            for item in conn.execute(
+                """SELECT id, codigo, nome, unidade, quantidade, saldo_visto, modelo
+                   FROM pedido_almox_item WHERE pedido_id = ? ORDER BY nome""",
+                (pedido_id,),
+            ).fetchall()
+        ]
+        dados = dict(row)
+        dados["itens"] = itens
+        return dados
+
+    @app.get("/api/almox/saude")
+    def almox_saude(request: Request) -> JSONResponse:
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+        return JSONResponse(status_firebird())
+
+    @app.get("/api/almox/produtos")
+    def almox_produtos(request: Request, q: str = "", limite: int = 40) -> JSONResponse:
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+        try:
+            itens = pesquisar_produtos(q, limite)
+        except Exception as exc:
+            return erro(502, "firebird_indisponivel", f"Não consegui consultar o estoque: {exc}")
+        return JSONResponse({"q": q.strip(), "total": len(itens), "itens": itens})
+
+    @app.get("/api/almox/pedidos")
+    def listar_pedidos_almox(request: Request, status: str = "fila", quadro_id: str = "") -> JSONResponse:
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            status_limpo = status.strip().lower()
+            quadro = quadro_id.strip()
+            if status_limpo in ("", "todos", "all"):
+                rows = conn.execute(
+                    """SELECT * FROM pedido_almox
+                       WHERE (? = '' OR quadro_id = ?)
+                       ORDER BY pedido_em DESC
+                       LIMIT 200""",
+                    (quadro, quadro),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """SELECT * FROM pedido_almox
+                       WHERE status = ?
+                         AND (? = '' OR quadro_id = ?)
+                       ORDER BY pedido_em ASC
+                       LIMIT 200""",
+                    (status_limpo, quadro, quadro),
+                ).fetchall()
+            saida = []
+            for row in rows:
+                item = _pedido_almox_json(conn, row["id"])
+                if item:
+                    saida.append(item)
+            conn.commit()
+        return JSONResponse(saida)
+
+    @app.post("/api/almox/pedidos")
+    def criar_pedido_almox(corpo: dict[str, Any], request: Request) -> JSONResponse:
+        quadro_id = str(corpo.get("quadro_id") or "").strip()
+        itens_brutos = corpo.get("itens") or []
+        observacao = str(corpo.get("observacao") or "").strip()
+        if not quadro_id:
+            return erro(422, "pedido_invalido", "Informe o projeto (quadro_id).")
+        if not isinstance(itens_brutos, list) or not itens_brutos:
+            return erro(422, "pedido_invalido", "Inclua ao menos um item.")
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            quadro = conn.execute(
+                "SELECT id, codigo FROM quadro WHERE id = ? AND status != 'cancelado'",
+                (quadro_id,),
+            ).fetchone()
+            if quadro is None:
+                return erro(404, "nao_encontrado", "Projeto não encontrado.")
+            limpos: list[dict[str, Any]] = []
+            for bruto in itens_brutos:
+                if not isinstance(bruto, dict):
+                    continue
+                codigo = str(bruto.get("codigo") or "").strip()
+                nome = str(bruto.get("nome") or "").strip()
+                try:
+                    qtd = float(bruto.get("quantidade") or 0)
+                except (TypeError, ValueError):
+                    qtd = 0.0
+                if not codigo or not nome or qtd <= 0:
+                    continue
+                saldo = bruto.get("saldo")
+                try:
+                    saldo_visto = float(saldo) if saldo is not None and str(saldo) != "" else None
+                except (TypeError, ValueError):
+                    saldo_visto = None
+                limpos.append(
+                    {
+                        "codigo": codigo[:80],
+                        "nome": nome[:240],
+                        "unidade": str(bruto.get("unidade") or "UN").strip()[:20] or "UN",
+                        "quantidade": qtd,
+                        "saldo_visto": saldo_visto,
+                        "modelo": str(bruto.get("modelo") or "").strip()[:80],
+                    }
+                )
+            if not limpos:
+                return erro(422, "pedido_invalido", "Nenhum item válido (código, nome e quantidade > 0).")
+            momento = agora()
+            pedido_id = str(uuid.uuid4())
+            conn.execute(
+                """INSERT INTO pedido_almox
+                   (id, quadro_id, quadro_codigo, solicitante_id, solicitante_nome, status,
+                    observacao, pedido_em, atualizado_em, atendido_por, atendido_em)
+                   VALUES (?, ?, ?, ?, ?, 'fila', ?, ?, ?, NULL, NULL)""",
+                (
+                    pedido_id,
+                    quadro_id,
+                    quadro["codigo"],
+                    sessao["usuario_id"],
+                    sessao["usuario_nome"] or "",
+                    observacao[:500],
+                    momento,
+                    momento,
+                ),
+            )
+            for item in limpos:
+                conn.execute(
+                    """INSERT INTO pedido_almox_item
+                       (id, pedido_id, codigo, nome, unidade, quantidade, saldo_visto, modelo)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        str(uuid.uuid4()),
+                        pedido_id,
+                        item["codigo"],
+                        item["nome"],
+                        item["unidade"],
+                        item["quantidade"],
+                        item["saldo_visto"],
+                        item["modelo"],
+                    ),
+                )
+            conn.execute(
+                """INSERT INTO evento_auditoria
+                   (ocorrido_em, ator_usuario_id, ator_dispositivo_id, acao, entidade, entidade_id, quadro_id, operacao_id, detalhe)
+                   VALUES (?, ?, ?, 'pedido_almox', 'pedido_almox', ?, ?, NULL, ?)""",
+                (
+                    momento,
+                    sessao["usuario_id"],
+                    sessao["dispositivo_id"],
+                    pedido_id,
+                    quadro_id,
+                    f"{len(limpos)} itens",
+                ),
+            )
+            pronto = _pedido_almox_json(conn, pedido_id)
+            conn.commit()
+        return JSONResponse(pronto, status_code=201)
+
+    @app.post("/api/almox/pedidos/{pedido_id}/status")
+    def status_pedido_almox(pedido_id: str, corpo: dict[str, Any], request: Request) -> JSONResponse:
+        novo = str(corpo.get("status") or "").strip().lower()
+        if novo not in ("fila", "separando", "entregue", "cancelado"):
+            return erro(422, "pedido_invalido", "Status: fila, separando, entregue ou cancelado.")
+        with db() as conn:
+            sessao = exigir(request, conn)
+            if isinstance(sessao, JSONResponse):
+                return sessao
+            if sessao["perfil"] == "montagem" and novo not in ("cancelado",):
+                return erro(403, "perfil_insuficiente", "Quem atualiza a fila é o estoque/painel.")
+            row = conn.execute("SELECT * FROM pedido_almox WHERE id = ?", (pedido_id,)).fetchone()
+            if row is None:
+                return erro(404, "nao_encontrado", "Pedido não encontrado.")
+            momento = agora()
+            atendido_por = row["atendido_por"]
+            atendido_em = row["atendido_em"]
+            if novo in ("separando", "entregue"):
+                atendido_por = sessao["usuario_id"]
+                atendido_em = momento
+            conn.execute(
+                """UPDATE pedido_almox
+                   SET status = ?, atualizado_em = ?, atendido_por = ?, atendido_em = ?
+                   WHERE id = ?""",
+                (novo, momento, atendido_por, atendido_em, pedido_id),
+            )
+            pronto = _pedido_almox_json(conn, pedido_id)
+            conn.commit()
+        return JSONResponse(pronto)
 
     @app.websocket("/api/ws")
     async def avisos(websocket: WebSocket) -> None:
