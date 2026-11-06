@@ -44,7 +44,6 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -251,90 +250,89 @@ fun TelaDesenho(
         if (rascunho != null) painelAberto = true
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(Preto)) {
-        // PDF em tela cheia de verdade; barras flutuam por cima.
-        AreaPdf(
-            modifier = Modifier.fillMaxSize(),
-            bitmap = bitmap,
-            falha = falha,
-            modo = modo,
-            escala = escala,
-            deslocamento = deslocamento,
-            pinos = pinosVisiveis,
-            tracos = tracosPagina,
-            telaCheia = true,
-            aoZoom = { fator, pan ->
-                escala = (escala * fator).coerceIn(1f, 6f)
-                deslocamento += pan
-            },
-            aoToque = { x, y ->
-                val sobPino = pinoSobToque(x, y, pinosVisiveis)
-                when {
-                    modo == ModoDesenho.Apagar && sobPino != null -> {
-                        removerPino(sobPino.id)
-                    }
-                    (modo == ModoDesenho.Ver || modo == ModoDesenho.Erro || modo == ModoDesenho.Mudanca) &&
-                        sobPino != null && sobPino.id != rascunho?.id -> {
-                        // Modificar marca existente: reabre texto / posição.
-                        editarPino(sobPino)
-                    }
-                    modo == ModoDesenho.Erro || modo == ModoDesenho.Mudanca -> {
-                        rascunho = PinoDesenho(
-                            id = rascunho?.id ?: java.util.UUID.randomUUID().toString(),
-                            pagina = pagina,
-                            x = x,
-                            y = y,
-                            tipo = modo,
-                            texto = texto,
-                        )
-                        painelAberto = true
-                    }
-                }
-            },
-            aoCommitTraco = { pontos -> guardarTraco(pontos) },
-            aoApagarTracos = { ids -> apagarTracos(ids) },
-        )
-
+    Column(modifier = Modifier.fillMaxSize().background(Fundo)) {
+        // Topo claro e limpo — projeto em tela grande abaixo.
         Row(
             modifier = Modifier
-                .align(Alignment.TopCenter)
                 .fillMaxWidth()
-                .background(Brush.verticalGradient(listOf(Color(0xE012151A), Color(0x8012151A), Color.Transparent)))
-                .padding(horizontal = 12.dp, vertical = 10.dp)
-                .padding(top = 8.dp),
+                .background(Branco)
+                .border(1.dp, Borda)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Pilula("Voltar", aoClicar = aoVoltar)
-            Text(
-                quadro.codigo,
-                color = Branco,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    quadro.codigo,
+                    color = Preto,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    "Folha ${pagina + 1} de ${max(folhas, 1)} · dois dedos = zoom",
+                    color = Cinza,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             Pilula("‹", enabled = pagina > 0) { pagina = (pagina - 1).coerceAtLeast(0) }
-            Text(
-                "${pagina + 1} / ${max(folhas, 1)}",
-                color = Branco,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-            )
             Pilula("›", enabled = pagina + 1 < folhas) {
                 if (pagina + 1 < folhas) pagina += 1
             }
         }
 
+        Box(modifier = Modifier.weight(1f).fillMaxWidth().background(FundoFaixa)) {
+            AreaPdf(
+                modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 6.dp),
+                bitmap = bitmap,
+                falha = falha,
+                modo = modo,
+                escala = escala,
+                deslocamento = deslocamento,
+                pinos = pinosVisiveis,
+                tracos = tracosPagina,
+                telaCheia = true,
+                aoZoom = { fator, pan ->
+                    escala = (escala * fator).coerceIn(1f, 6f)
+                    deslocamento += pan
+                },
+                aoToque = { x, y ->
+                    val sobPino = pinoSobToque(x, y, pinosVisiveis)
+                    when {
+                        modo == ModoDesenho.Apagar && sobPino != null -> {
+                            removerPino(sobPino.id)
+                        }
+                        (modo == ModoDesenho.Ver || modo == ModoDesenho.Erro || modo == ModoDesenho.Mudanca) &&
+                            sobPino != null && sobPino.id != rascunho?.id -> {
+                            editarPino(sobPino)
+                        }
+                        modo == ModoDesenho.Erro || modo == ModoDesenho.Mudanca -> {
+                            rascunho = PinoDesenho(
+                                id = rascunho?.id ?: java.util.UUID.randomUUID().toString(),
+                                pagina = pagina,
+                                x = x,
+                                y = y,
+                                tipo = modo,
+                                texto = texto,
+                            )
+                            painelAberto = true
+                        }
+                    }
+                },
+                aoCommitTraco = { pontos -> guardarTraco(pontos) },
+                aoApagarTracos = { ids -> apagarTracos(ids) },
+            )
+        }
+
         Column(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .padding(10.dp)
-                .shadow(12.dp, Forma)
-                .clip(Forma)
-                .background(Branco.copy(alpha = 0.96f))
+                .background(Branco)
+                .border(1.dp, Borda)
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -459,7 +457,11 @@ private fun AreaPdf(
         modifier = modifier
             .then(
                 if (telaCheia) {
-                    Modifier.background(Preto).clipToBounds()
+                    Modifier
+                        .clip(FormaPequena)
+                        .background(Branco)
+                        .border(1.dp, Borda, FormaPequena)
+                        .clipToBounds()
                 } else {
                     Modifier
                         .shadow(12.dp, Folha)
@@ -474,7 +476,7 @@ private fun AreaPdf(
             BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(if (telaCheia) 0.dp else 8.dp),
+                    .padding(if (telaCheia) 4.dp else 8.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 val boxW = constraints.maxWidth.toFloat().coerceAtLeast(1f)

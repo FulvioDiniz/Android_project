@@ -309,8 +309,8 @@ private fun Tela(dao: QuadroDao) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(if (desenhoCheio) Preto else Fundo)
-            .then(if (desenhoCheio) Modifier else Modifier.systemBarsPadding()),
+            .background(Fundo)
+            .systemBarsPadding(),
     ) {
         if (token.isBlank()) {
             Login(
