@@ -268,7 +268,8 @@ async function api<T>(caminho: string, token: string, opcoes: RequestInit = {}):
 
 export function App() {
   const [sessao, setSessao] = useState<Sessao | null>(null);
-  const [tela, setTela] = useState<Tela>("duvidas");
+  const modoCelular = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("celular") === "1";
+  const [tela, setTela] = useState<Tela>(modoCelular ? "simulador" : "duvidas");
   const [quadroId, setQuadroId] = useState<string | null>(null);
   const [login, setLogin] = useState("ana.ribeiro");
   const [senha, setSenha] = useState("");
@@ -496,7 +497,7 @@ export function App() {
       return;
     }
     setSessao(corpo);
-    setTela("quadros");
+    setTela(modoCelular ? "simulador" : "quadros");
   }
 
   async function sair() {
@@ -667,32 +668,38 @@ export function App() {
 
   return (
     <>
-      <header className="topo">
-        <strong>Quadros</strong>
-        <nav>
-          {menus.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={tela === item.id || (tela === "quadro" && item.id === "quadros") ? "ativo" : "secundario"}
-              onClick={() => ir(item.id)}
-            >
-              {item.rotulo}
-              {item.id === "duvidas" && semResposta > 0 ? ` (${semResposta})` : ""}
-              {item.id === "almox" && naFilaAlmox > 0 ? ` (${naFilaAlmox})` : ""}
+      {!modoCelular ? (
+        <header className="topo">
+          <strong>Quadros</strong>
+          <nav>
+            {menus.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={tela === item.id || (tela === "quadro" && item.id === "quadros") ? "ativo" : "secundario"}
+                onClick={() => ir(item.id)}
+              >
+                {item.rotulo}
+                {item.id === "duvidas" && semResposta > 0 ? ` (${semResposta})` : ""}
+                {item.id === "almox" && naFilaAlmox > 0 ? ` (${naFilaAlmox})` : ""}
+              </button>
+            ))}
+            <button type="button" className="secundario" onClick={sair}>
+              Sair
             </button>
-          ))}
-          <button type="button" className="secundario" onClick={sair}>
-            Sair
-          </button>
-        </nav>
-        <p className="quem">
-          {sessao.usuario.nome} · {sessao.perfil}
-        </p>
-      </header>
+          </nav>
+          <p className="quem">
+            {sessao.usuario.nome} · {sessao.perfil}
+          </p>
+        </header>
+      ) : null}
       <main
         className={
-          tela === "duvidas" || tela === "quadro" || tela === "almox" || tela === "simulador" ? "main-largo" : undefined
+          modoCelular
+            ? "main-celular"
+            : tela === "duvidas" || tela === "quadro" || tela === "almox" || tela === "simulador"
+              ? "main-largo"
+              : undefined
         }
       >
         {erro ? <p className="aviso">{erro}</p> : null}
@@ -1344,6 +1351,7 @@ export function App() {
             horaBrasil={horaBrasil}
             ondePortal={ondePortal}
             rotuloRev={rotuloRev}
+            modoCelular={modoCelular}
             onAtualizar={() => carregar(sessao.token).catch((f: Error) => setErro(f.message))}
             onPedidoEnviado={() => {
               setAviso("Pedido do simulador entrou na fila do Almox.");

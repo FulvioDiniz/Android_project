@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Quadro = {
   id: string;
@@ -41,6 +41,8 @@ type Props = {
   rotuloRev: (codigo?: string | null) => string | null;
   onPedidoEnviado: () => void;
   onAtualizar: () => void;
+  /** Só o celular, sem coluna de texto — ideal no aparelho real ou F11. */
+  modoCelular?: boolean;
 };
 
 function seloProjeto(quadro: Quadro, rotuloRev: (c?: string | null) => string | null): string {
@@ -59,7 +61,10 @@ export function SimuladorTablet({
   rotuloRev,
   onPedidoEnviado,
   onAtualizar,
+  modoCelular = false,
 }: Props) {
+  const foneRef = useRef<HTMLDivElement | null>(null);
+  const [foneCheio, setFoneCheio] = useState(false);
   const comPdf = useMemo(
     () => quadros.filter((q) => (q.arquivo_id || "").trim() !== "" || q.arquivo_disponivel !== false),
     [quadros],
@@ -97,6 +102,12 @@ export function SimuladorTablet({
     setAba("desenho");
     setErro("");
     setLeituraOk(false);
+    const el = foneRef.current;
+    if (el && document.fullscreenElement !== el) {
+      el.requestFullscreen?.().catch(() => setFoneCheio(true));
+    } else {
+      setFoneCheio(true);
+    }
   }
 
   function voltarLista() {
@@ -259,37 +270,82 @@ export function SimuladorTablet({
     setAba(destino);
   }
 
-  const projetoAberto = Boolean(quadroId && quadro);
+  const projetoAberto = Boolean(quadroId && quadro && aba !== "projetos");
+
+  useEffect(() => {
+    function syncFs() {
+      const ativo = document.fullscreenElement === foneRef.current;
+      setFoneCheio(ativo);
+    }
+    document.addEventListener("fullscreenchange", syncFs);
+    return () => document.removeEventListener("fullscreenchange", syncFs);
+  }, []);
+
+  async function alternarTelaCheiaCelular() {
+    const el = foneRef.current;
+    if (!el) return;
+    try {
+      if (document.fullscreenElement === el) {
+        await document.exitFullscreen();
+      } else {
+        await el.requestFullscreen();
+      }
+    } catch {
+      setFoneCheio((v) => !v);
+    }
+  }
 
   return (
-    <div className={projetoAberto ? "sim-wrap sim-wrap-cheio" : "sim-wrap"}>
-      {!projetoAberto ? (
+    <div className={modoCelular ? "sim-wrap sim-wrap-celular" : "sim-wrap"}>
+      {!modoCelular ? (
         <div>
-          <h1>Simulador do tablet</h1>
+          <h1>Celular / tablet</h1>
           <p className="miudo">
-            Teste como no APK: lista de projetos, desenho PDF, oficina e requisição ao almox.
-            Ao abrir um projeto, a tela fica inteira.
+            Use o aparelho à direita. Clique em <strong>Tela cheia do celular</strong> para
+            o aparelho ocupar a tela; ao abrir um projeto, o desenho preenche a tela do celular.
           </p>
           <ul className="lista">
-            <li>Projetos — busca e abre o quadro em tela cheia</li>
-            <li>Desenho — PDF ocupando a tela</li>
-            <li>Almox — pede peça (Firebird → fila)</li>
-            <li>Oficina — confirma leitura (simulado)</li>
+            <li>Projetos — lista e abre o quadro</li>
+            <li>Desenho — PDF em tela cheia no celular</li>
+            <li>Almox — requisição Firebird</li>
+            <li>Oficina — confirma leitura</li>
           </ul>
+          <p className="miudo">
+            No celular real abra: <code>?celular=1</code> depois do login, ou o botão abaixo.
+          </p>
+          <div className="sim-acoes-topo">
+            <button type="button" onClick={alternarTelaCheiaCelular}>
+              {foneCheio ? "Sair da tela cheia" : "Tela cheia do celular"}
+            </button>
+            <a className="sim-link-celular" href="?celular=1" target="_blank" rel="noreferrer">
+              Abrir só o celular
+            </a>
+          </div>
         </div>
-      ) : null}
-      <div className={projetoAberto ? "sim-tablet sim-tablet-cheio" : "sim-tablet"}>
-        {!projetoAberto ? <div className="sim-notch" /> : null}
-        <div className={projetoAberto ? "sim-tela sim-tela-cheia" : "sim-tela"}>
+      ) : (
+        <div className="sim-acoes-topo sim-acoes-celular">
+          <button type="button" onClick={alternarTelaCheiaCelular}>
+            {foneCheio ? "Sair da tela cheia" : "Tela cheia"}
+          </button>
+        </div>
+      )}
+      <div
+        ref={foneRef}
+        className={
+          "sim-tablet sim-fone" +
+          (foneCheio ? " sim-fone-cheio" : "") +
+          (projetoAberto ? " sim-fone-projeto" : "")
+        }
+      >
+        <div className="sim-notch" />
+        <div className={"sim-tela" + (projetoAberto ? " sim-tela-projeto" : "")}>
           {erro ? <p className="aviso">{erro}</p> : null}
 
           {aba === "projetos" || !quadro ? (
             <>
               <header className="sim-topo">
                 <strong>Projetos</strong>
-                <span>
-                  {projetosVisiveis.length} na lista · toque para abrir em tela cheia
-                </span>
+                <span>{projetosVisiveis.length} na lista · toque para abrir</span>
               </header>
               <label className="sim-campo">
                 Buscar projeto
