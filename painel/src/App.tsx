@@ -24,8 +24,9 @@ function rotuloRev(codigo?: string | null): string | null {
   return null;
 }
 import { VisorPdf, apontamentoNoPdf, comentarioMarca, lerMarca, tipoMarca } from "./VisorPdf";
+import { SimuladorTablet } from "./SimuladorTablet";
 
-type Tela = "quadros" | "quadro" | "revisoes" | "duvidas" | "almox" | "bancadas" | "auditoria" | "pessoas";
+type Tela = "quadros" | "quadro" | "revisoes" | "duvidas" | "almox" | "simulador" | "bancadas" | "auditoria" | "pessoas";
 
 type PedidoAlmoxItem = {
   id: string;
@@ -631,6 +632,7 @@ export function App() {
   const menus: { id: Tela; rotulo: string }[] = [
     { id: "duvidas", rotulo: "Erros" },
     { id: "almox", rotulo: "Almox" },
+    { id: "simulador", rotulo: "Simulador" },
     { id: "quadros", rotulo: "Projetos" },
     { id: "revisoes", rotulo: "Revisões" },
     { id: "bancadas", rotulo: "Bancadas" },
@@ -686,7 +688,11 @@ export function App() {
           {sessao.usuario.nome} · {sessao.perfil}
         </p>
       </header>
-      <main className={tela === "duvidas" || tela === "quadro" || tela === "almox" ? "main-largo" : undefined}>
+      <main
+        className={
+          tela === "duvidas" || tela === "quadro" || tela === "almox" || tela === "simulador" ? "main-largo" : undefined
+        }
+      >
         {erro ? <p className="aviso">{erro}</p> : null}
         {aviso ? <p className="ok">{aviso}</p> : null}
         {semResposta > 0 && tela !== "duvidas" ? (
@@ -1326,6 +1332,19 @@ export function App() {
               </div>
             )}
           </>
+        ) : null}
+
+        {tela === "simulador" ? (
+          <SimuladorTablet
+            token={sessao.token}
+            quadros={quadros}
+            api={api}
+            horaBrasil={horaBrasil}
+            onPedidoEnviado={() => {
+              setAviso("Pedido do simulador entrou na fila do Almox.");
+              carregar(sessao.token).catch((f: Error) => setErro(f.message));
+            }}
+          />
         ) : null}
 
         {tela === "almox" ? (

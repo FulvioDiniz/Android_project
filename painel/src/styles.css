@@ -862,3 +862,211 @@ button.erro-card {
     align-items: stretch;
   }
 }
+
+.sim-wrap {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(360px, 420px);
+  gap: 28px;
+  align-items: start;
+}
+
+.sim-tablet {
+  justify-self: center;
+  width: min(100%, 400px);
+  background: #12151a;
+  border-radius: 28px;
+  padding: 14px 12px 18px;
+  box-shadow: 0 18px 40px rgba(18, 21, 26, 0.28);
+}
+
+.sim-notch {
+  width: 96px;
+  height: 8px;
+  margin: 4px auto 12px;
+  border-radius: 8px;
+  background: #2a3038;
+}
+
+.sim-tela {
+  background: #f2f4f7;
+  border-radius: 18px;
+  padding: 14px;
+  min-height: 640px;
+  max-height: 78vh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sim-topo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sim-topo strong {
+  font-size: 22px;
+  letter-spacing: -0.5px;
+}
+
+.sim-topo span {
+  color: #5c6570;
+  font-size: 13px;
+}
+
+.sim-campo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #5c6570;
+}
+
+.sim-campo input,
+.sim-campo select,
+.sim-campo textarea {
+  border: 1px solid #d5dce5;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font: inherit;
+  color: #12151a;
+  background: #fff;
+}
+
+.sim-status {
+  margin: 0;
+  color: #d9481a;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sim-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+  background: #fff;
+  border: 1px solid #d5dce5;
+  border-radius: 14px;
+  padding: 6px;
+}
+
+.sim-produto {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto auto;
+  gap: 2px 8px;
+  text-align: left;
+  margin: 0;
+  padding: 10px;
+  background: #fff;
+  color: #12151a;
+  border: 0;
+  border-bottom: 1px solid #eef1f5;
+  border-radius: 0;
+  min-height: 0;
+}
+
+.sim-produto strong {
+  color: #f05a28;
+  font-size: 13px;
+}
+
+.sim-produto span {
+  grid-column: 1;
+  font-size: 13px;
+}
+
+.sim-produto em {
+  grid-column: 1;
+  font-style: normal;
+  color: #5c6570;
+  font-size: 12px;
+}
+
+.sim-produto b {
+  grid-row: 1 / span 3;
+  align-self: center;
+  color: #f05a28;
+  font-size: 22px;
+}
+
+.sim-carrinho {
+  background: #ffefe8;
+  border: 1px solid #ffcdb8;
+  border-radius: 14px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sim-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+
+.sim-item strong {
+  display: block;
+  color: #f05a28;
+  font-size: 12px;
+}
+
+.sim-item span {
+  font-size: 12px;
+}
+
+.sim-qtd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sim-qtd button {
+  margin: 0;
+  min-width: 32px;
+  padding: 4px 8px;
+}
+
+.sim-enviar {
+  margin: 0;
+  background: #f05a28;
+  border-color: #f05a28;
+}
+
+.sim-enviar:disabled {
+  opacity: 0.6;
+}
+
+.sim-fila {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sim-pedido {
+  background: #fff;
+  border: 1px solid #d5dce5;
+  border-radius: 12px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+
+.sim-pedido span:first-child {
+  color: #f05a28;
+  font-weight: 700;
+}
+
+@media (max-width: 900px) {
+  .sim-wrap {
+    grid-template-columns: 1fr;
+  }
+}
