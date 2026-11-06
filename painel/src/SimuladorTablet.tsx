@@ -271,6 +271,7 @@ export function SimuladorTablet({
   }
 
   const projetoAberto = Boolean(quadroId && quadro && aba !== "projetos");
+  const desenhoCheio = Boolean(quadro && aba === "desenho");
 
   useEffect(() => {
     function syncFs() {
@@ -322,24 +323,31 @@ export function SimuladorTablet({
             </a>
           </div>
         </div>
-      ) : (
+      ) : !desenhoCheio ? (
         <div className="sim-acoes-topo sim-acoes-celular">
           <button type="button" onClick={alternarTelaCheiaCelular}>
             {foneCheio ? "Sair da tela cheia" : "Tela cheia"}
           </button>
         </div>
-      )}
+      ) : null}
       <div
         ref={foneRef}
         className={
           "sim-tablet sim-fone" +
-          (foneCheio ? " sim-fone-cheio" : "") +
-          (projetoAberto ? " sim-fone-projeto" : "")
+          (foneCheio || modoCelular ? " sim-fone-cheio" : "") +
+          (projetoAberto ? " sim-fone-projeto" : "") +
+          (desenhoCheio ? " sim-fone-desenho" : "")
         }
       >
-        <div className="sim-notch" />
-        <div className={"sim-tela" + (projetoAberto ? " sim-tela-projeto" : "")}>
-          {erro ? <p className="aviso">{erro}</p> : null}
+        {!desenhoCheio ? <div className="sim-notch" /> : null}
+        <div
+          className={
+            "sim-tela" +
+            (projetoAberto ? " sim-tela-projeto" : "") +
+            (desenhoCheio ? " sim-tela-desenho" : "")
+          }
+        >
+          {erro && !desenhoCheio ? <p className="aviso">{erro}</p> : null}
 
           {aba === "projetos" || !quadro ? (
             <>
@@ -380,32 +388,28 @@ export function SimuladorTablet({
           ) : null}
 
           {aba === "desenho" && quadro ? (
-            <>
-              <header className="sim-topo sim-topo-cheio">
-                <button type="button" className="sim-voltar" onClick={voltarLista}>
-                  ← Projetos
-                </button>
-                <div className="sim-topo-titulo">
-                  <strong>{quadro.codigo}</strong>
-                  <span>{pdfStatus || "Desenho em tela cheia"}</span>
-                </div>
-                <div className="sim-topo-acoes">
-                  <button type="button" className="secundario" onClick={() => setAba("almox")}>
-                    Almox
-                  </button>
-                  <button type="button" className="secundario" onClick={() => setAba("oficina")}>
-                    Oficina
-                  </button>
-                </div>
-              </header>
+            <div className="sim-desenho-cheio">
               {pdfUrl ? (
-                <iframe title={`PDF ${quadro.codigo}`} className="sim-pdf sim-pdf-cheio" src={`${pdfUrl}#toolbar=1&navpanes=0`} />
+                <iframe
+                  title={`PDF ${quadro.codigo}`}
+                  className="sim-pdf sim-pdf-imersivo"
+                  src={`${pdfUrl}#toolbar=0&navpanes=0&scrollbar=1&view=Fit`}
+                />
               ) : (
                 <div className="sim-pdf-vazio">
                   <p>{pdfStatus || "Sem PDF"}</p>
                 </div>
               )}
-            </>
+              <div className="sim-desenho-barra">
+                <button type="button" className="sim-voltar" onClick={voltarLista}>
+                  ← Projetos
+                </button>
+                <strong>{quadro.codigo}</strong>
+                <button type="button" className="secundario" onClick={() => setAba("almox")}>
+                  Almox
+                </button>
+              </div>
+            </div>
           ) : null}
 
           {aba === "almox" && quadro ? (
