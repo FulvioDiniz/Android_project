@@ -259,23 +259,28 @@ export function SimuladorTablet({
     setAba(destino);
   }
 
+  const projetoAberto = Boolean(quadroId && quadro);
+
   return (
-    <div className="sim-wrap">
-      <div>
-        <h1>Simulador do tablet</h1>
-        <p className="miudo">
-          Teste como no APK: lista de projetos, desenho PDF, oficina e requisição ao almox.
-        </p>
-        <ul className="lista">
-          <li>Projetos — busca e abre o quadro</li>
-          <li>Desenho — PDF do projeto</li>
-          <li>Almox — pede peça (Firebird → fila)</li>
-          <li>Oficina — confirma leitura (simulado)</li>
-        </ul>
-      </div>
-      <div className="sim-tablet">
-        <div className="sim-notch" />
-        <div className="sim-tela">
+    <div className={projetoAberto ? "sim-wrap sim-wrap-cheio" : "sim-wrap"}>
+      {!projetoAberto ? (
+        <div>
+          <h1>Simulador do tablet</h1>
+          <p className="miudo">
+            Teste como no APK: lista de projetos, desenho PDF, oficina e requisição ao almox.
+            Ao abrir um projeto, a tela fica inteira.
+          </p>
+          <ul className="lista">
+            <li>Projetos — busca e abre o quadro em tela cheia</li>
+            <li>Desenho — PDF ocupando a tela</li>
+            <li>Almox — pede peça (Firebird → fila)</li>
+            <li>Oficina — confirma leitura (simulado)</li>
+          </ul>
+        </div>
+      ) : null}
+      <div className={projetoAberto ? "sim-tablet sim-tablet-cheio" : "sim-tablet"}>
+        {!projetoAberto ? <div className="sim-notch" /> : null}
+        <div className={projetoAberto ? "sim-tela sim-tela-cheia" : "sim-tela"}>
           {erro ? <p className="aviso">{erro}</p> : null}
 
           {aba === "projetos" || !quadro ? (
@@ -283,7 +288,7 @@ export function SimuladorTablet({
               <header className="sim-topo">
                 <strong>Projetos</strong>
                 <span>
-                  {projetosVisiveis.length} na lista · toque para abrir
+                  {projetosVisiveis.length} na lista · toque para abrir em tela cheia
                 </span>
               </header>
               <label className="sim-campo">
@@ -320,15 +325,25 @@ export function SimuladorTablet({
 
           {aba === "desenho" && quadro ? (
             <>
-              <header className="sim-topo">
+              <header className="sim-topo sim-topo-cheio">
                 <button type="button" className="sim-voltar" onClick={voltarLista}>
                   ← Projetos
                 </button>
-                <strong>{quadro.codigo}</strong>
-                <span>{pdfStatus || "Desenho"}</span>
+                <div className="sim-topo-titulo">
+                  <strong>{quadro.codigo}</strong>
+                  <span>{pdfStatus || "Desenho em tela cheia"}</span>
+                </div>
+                <div className="sim-topo-acoes">
+                  <button type="button" className="secundario" onClick={() => setAba("almox")}>
+                    Almox
+                  </button>
+                  <button type="button" className="secundario" onClick={() => setAba("oficina")}>
+                    Oficina
+                  </button>
+                </div>
               </header>
               {pdfUrl ? (
-                <iframe title={`PDF ${quadro.codigo}`} className="sim-pdf" src={pdfUrl} />
+                <iframe title={`PDF ${quadro.codigo}`} className="sim-pdf sim-pdf-cheio" src={`${pdfUrl}#toolbar=1&navpanes=0`} />
               ) : (
                 <div className="sim-pdf-vazio">
                   <p>{pdfStatus || "Sem PDF"}</p>
@@ -441,25 +456,27 @@ export function SimuladorTablet({
             </>
           ) : null}
 
-          <nav className="sim-nav">
-            {(
-              [
-                ["projetos", "Projetos"],
-                ["desenho", "Desenho"],
-                ["almox", "Almox"],
-                ["oficina", "Oficina"],
-              ] as const
-            ).map(([id, rotulo]) => (
-              <button
-                key={id}
-                type="button"
-                className={aba === id ? "ativo" : undefined}
-                onClick={() => (id === "projetos" ? (quadroId ? setAba("projetos") : voltarLista()) : irAba(id))}
-              >
-                {rotulo}
-              </button>
-            ))}
-          </nav>
+          {aba !== "desenho" ? (
+            <nav className="sim-nav">
+              {(
+                [
+                  ["projetos", "Projetos"],
+                  ["desenho", "Desenho"],
+                  ["almox", "Almox"],
+                  ["oficina", "Oficina"],
+                ] as const
+              ).map(([id, rotulo]) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={aba === id ? "ativo" : undefined}
+                  onClick={() => (id === "projetos" ? (quadroId ? setAba("projetos") : voltarLista()) : irAba(id))}
+                >
+                  {rotulo}
+                </button>
+              ))}
+            </nav>
+          ) : null}
         </div>
       </div>
     </div>
