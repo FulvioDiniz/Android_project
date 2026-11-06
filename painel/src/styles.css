@@ -870,6 +870,164 @@ button.erro-card {
   align-items: start;
 }
 
+.sim-tela {
+  position: relative;
+  padding-bottom: 72px;
+}
+
+.sim-acoes-topo {
+  display: flex;
+  gap: 8px;
+}
+
+.sim-acoes-topo button {
+  margin: 0;
+}
+
+.sim-projetos {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.sim-cartao-projeto {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  text-align: left;
+  background: #fff;
+  color: #12151a;
+  border: 1px solid #d5dce5;
+  border-radius: 14px;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.sim-cartao-barra {
+  width: 5px;
+  background: linear-gradient(180deg, #f05a28, #0e7490);
+}
+
+.sim-cartao-corpo {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+}
+
+.sim-cartao-corpo strong {
+  font-size: 14px;
+}
+
+.sim-cartao-corpo em {
+  font-style: normal;
+  color: #0e7490;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.sim-selo {
+  align-self: flex-start;
+  background: #ffefe8;
+  color: #d9481a;
+  border: 1px solid #ffcdb8;
+  border-radius: 8px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.sim-cartao-projeto > b {
+  align-self: center;
+  padding-right: 12px;
+  color: #f05a28;
+  font-size: 22px;
+}
+
+.sim-voltar {
+  margin: 0;
+  align-self: flex-start;
+  background: transparent;
+  color: #f05a28;
+  border: 0;
+  padding: 0;
+  min-height: 0;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.sim-pdf {
+  width: 100%;
+  flex: 1;
+  min-height: 420px;
+  border: 1px solid #d5dce5;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.sim-pdf-vazio {
+  flex: 1;
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  background: #fff;
+  border: 1px dashed #d5dce5;
+  border-radius: 12px;
+  color: #5c6570;
+}
+
+.sim-oficina {
+  background: #fff;
+  border: 1px solid #d5dce5;
+  border-radius: 14px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sim-oficina button {
+  margin: 0;
+}
+
+.sim-nav {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  background: #fff;
+  border: 1px solid #d5dce5;
+  border-radius: 14px;
+  padding: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+}
+
+.sim-nav button {
+  margin: 0;
+  min-height: 44px;
+  padding: 6px 4px;
+  font-size: 11px;
+  background: transparent;
+  color: #12151a;
+  border: 0;
+  border-radius: 10px;
+}
+
+.sim-nav button.ativo {
+  background: #ffefe8;
+  color: #d9481a;
+  border: 0;
+}
+
 .sim-tablet {
   justify-self: center;
   width: min(100%, 400px);

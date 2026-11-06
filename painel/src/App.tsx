@@ -61,6 +61,8 @@ type Quadro = {
   responsavel_nome: string | null;
   revisao_vigente_id: string | null;
   revisao_vigente_codigo: string | null;
+  arquivo_id?: string | null;
+  arquivo_disponivel?: boolean;
 };
 
 type Sessao = {
@@ -1340,6 +1342,9 @@ export function App() {
             quadros={quadros}
             api={api}
             horaBrasil={horaBrasil}
+            ondePortal={ondePortal}
+            rotuloRev={rotuloRev}
+            onAtualizar={() => carregar(sessao.token).catch((f: Error) => setErro(f.message))}
             onPedidoEnviado={() => {
               setAviso("Pedido do simulador entrou na fila do Almox.");
               carregar(sessao.token).catch((f: Error) => setErro(f.message));
