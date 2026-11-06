@@ -86,6 +86,7 @@ private enum class Aba(val rotulo: String) {
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
         val dao = banco(this).dao()
         setContent {
             MaterialTheme(
@@ -304,7 +305,13 @@ private fun Tela(dao: QuadroDao) {
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().systemBarsPadding().background(Fundo)) {
+    val desenhoCheio = token.isNotBlank() && aba == Aba.Desenho && aberto != null
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(if (desenhoCheio) Preto else Fundo)
+            .then(if (desenhoCheio) Modifier else Modifier.systemBarsPadding()),
+    ) {
         if (token.isBlank()) {
             Login(
                 servidor = servidor,
@@ -335,12 +342,11 @@ private fun Tela(dao: QuadroDao) {
                 },
             )
         } else {
-            val desenhoCheio = aba == Aba.Desenho && aberto != null
             Column(
                 modifier = Modifier
                     .weight(1f)
                     .then(
-                        if (desenhoCheio) Modifier else Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        if (desenhoCheio) Modifier.fillMaxSize() else Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                     ),
                 verticalArrangement = Arrangement.spacedBy(if (desenhoCheio) 0.dp else 12.dp),
             ) {

@@ -44,6 +44,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -250,9 +251,10 @@ fun TelaDesenho(
         if (rascunho != null) painelAberto = true
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(Fundo)) {
+    Box(modifier = Modifier.fillMaxSize().background(Preto)) {
+        // PDF em tela cheia de verdade; barras flutuam por cima.
         AreaPdf(
-            modifier = Modifier.fillMaxSize().padding(top = 64.dp, bottom = if (painelAberto) 280.dp else 96.dp),
+            modifier = Modifier.fillMaxSize(),
             bitmap = bitmap,
             falha = falha,
             modo = modo,
@@ -260,6 +262,7 @@ fun TelaDesenho(
             deslocamento = deslocamento,
             pinos = pinosVisiveis,
             tracos = tracosPagina,
+            telaCheia = true,
             aoZoom = { fator, pan ->
                 escala = (escala * fator).coerceIn(1f, 6f)
                 deslocamento += pan
@@ -296,14 +299,16 @@ fun TelaDesenho(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .background(Brush.verticalGradient(listOf(Color(0xE012151A), Color(0x8012151A), Color.Transparent)))
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+                .padding(top = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Pilula("Voltar", aoClicar = aoVoltar)
             Text(
                 quadro.codigo,
-                color = Preto,
+                color = Branco,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f),
@@ -313,7 +318,7 @@ fun TelaDesenho(
             Pilula("‹", enabled = pagina > 0) { pagina = (pagina - 1).coerceAtLeast(0) }
             Text(
                 "${pagina + 1} / ${max(folhas, 1)}",
-                color = Cinza,
+                color = Branco,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
             )
@@ -329,7 +334,7 @@ fun TelaDesenho(
                 .padding(10.dp)
                 .shadow(12.dp, Forma)
                 .clip(Forma)
-                .background(Branco)
+                .background(Branco.copy(alpha = 0.96f))
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -436,6 +441,7 @@ private fun AreaPdf(
     deslocamento: Offset,
     pinos: List<PinoDesenho>,
     tracos: List<TracoDesenho>,
+    telaCheia: Boolean = false,
     aoZoom: (Float, Offset) -> Unit,
     aoToque: (Float, Float) -> Unit,
     aoCommitTraco: (List<Offset>) -> Unit,
@@ -451,14 +457,26 @@ private fun AreaPdf(
     var vivo by remember { mutableStateOf<List<Offset>>(emptyList()) }
     Box(
         modifier = modifier
-            .shadow(12.dp, Folha)
-            .clip(Folha)
-            .background(Branco)
-            .clipToBounds(),
+            .then(
+                if (telaCheia) {
+                    Modifier.background(Preto).clipToBounds()
+                } else {
+                    Modifier
+                        .shadow(12.dp, Folha)
+                        .clip(Folha)
+                        .background(Branco)
+                        .clipToBounds()
+                },
+            ),
         contentAlignment = Alignment.Center,
     ) {
         if (bitmap != null && falha.isBlank()) {
-            BoxWithConstraints(modifier = Modifier.fillMaxSize().padding(8.dp), contentAlignment = Alignment.Center) {
+            BoxWithConstraints(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(if (telaCheia) 0.dp else 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
                 val boxW = constraints.maxWidth.toFloat().coerceAtLeast(1f)
                 val boxH = constraints.maxHeight.toFloat().coerceAtLeast(1f)
                 val imgW = bitmap.width.toFloat().coerceAtLeast(1f)
