@@ -251,7 +251,8 @@ fun TelaDesenho(
         if (rascunho != null) painelAberto = true
     }
 
-    // PDF em tela cheia; ferramentas na lateral direita (não cobrem o desenho).
+    // PDF fullscreen por padrão; chrome mínimo; ferramentas só no double-tap.
+    var ferramentas by remember(quadro.id) { mutableStateOf(false) }
     val alvo = rascunho
     val podeEnviar = alvo != null || tracosPagina.isNotEmpty()
     Box(modifier = Modifier.fillMaxSize().background(Branco)) {
@@ -268,6 +269,12 @@ fun TelaDesenho(
             aoZoom = { fator, pan ->
                 escala = (escala * fator).coerceIn(1f, 6f)
                 deslocamento += pan
+            },
+            aoDuploToque = {
+                ferramentas = !ferramentas
+                if (!ferramentas && modo == ModoDesenho.Ver) {
+                    // menu fechado — só visualizar
+                }
             },
             aoToque = { x, y ->
                 val sobPino = pinoSobToque(x, y, pinosVisiveis)
@@ -289,6 +296,7 @@ fun TelaDesenho(
                             texto = texto,
                         )
                         painelAberto = true
+                        ferramentas = false
                     }
                 }
             },
@@ -296,65 +304,130 @@ fun TelaDesenho(
             aoApagarTracos = { ids -> apagarTracos(ids) },
         )
 
-        Row(
+        // Chrome mínimo: só voltar no canto.
+        Box(
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .fillMaxWidth()
-                .padding(end = 64.dp)
-                .padding(8.dp)
-                .clip(FormaPequena)
-                .background(Branco.copy(alpha = 0.92f))
-                .border(1.dp, Borda, FormaPequena)
-                .padding(horizontal = 8.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .padding(10.dp)
+                .clip(FormaSelo)
+                .background(Branco.copy(alpha = 0.88f))
+                .border(1.dp, Borda, FormaSelo)
+                .clickable(onClick = aoVoltar)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
-            Pilula("Voltar", aoClicar = aoVoltar)
-            Text(
-                quadro.codigo,
-                color = Preto,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Pilula("‹", enabled = pagina > 0) { pagina = (pagina - 1).coerceAtLeast(0) }
-            Text("${pagina + 1}/${max(folhas, 1)}", color = Cinza, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            Pilula("›", enabled = pagina + 1 < folhas) {
-                if (pagina + 1 < folhas) pagina += 1
+            Text("‹", color = Laranja, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        }
+
+        if (ferramentas) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(12.dp)
+                    .clip(Forma)
+                    .background(Branco.copy(alpha = 0.96f))
+                    .border(1.dp, Borda, Forma)
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    quadro.codigo,
+                    color = Preto,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Box(Modifier.weight(1f)) {
+                        Chip("Desenhar", modo == ModoDesenho.Lapis) {
+                            entrarModo(ModoDesenho.Lapis)
+                            ferramentas = false
+                        }
+                    }
+                    Box(Modifier.weight(1f)) {
+                        Chip("Apagar", modo == ModoDesenho.Apagar, Cinza) {
+                            entrarModo(ModoDesenho.Apagar)
+                            ferramentas = false
+                        }
+                    }
+                    Box(Modifier.weight(1f)) {
+                        Chip("Mudar", modo == ModoDesenho.Mudanca, Azul) {
+                            entrarModo(ModoDesenho.Mudanca)
+                            ferramentas = false
+                        }
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Chip("Erro", modo == ModoDesenho.Erro, Vermelho) {
+                        entrarModo(ModoDesenho.Erro)
+                        ferramentas = false
+                    }
+                    Chip("Ver", modo == ModoDesenho.Ver) {
+                        entrarModo(ModoDesenho.Ver)
+                        ferramentas = false
+                    }
+                    if (tracosPagina.isNotEmpty()) {
+                        Chip("Desfazer", ativo = false, cor = Cinza) { desfazerUltimoTraco() }
+                    }
+                    Spacer(Modifier.weight(1f))
+                    Pilula("‹", enabled = pagina > 0) { pagina = (pagina - 1).coerceAtLeast(0) }
+                    Text("${pagina + 1}/${max(folhas, 1)}", color = Cinza, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Pilula("›", enabled = pagina + 1 < folhas) {
+                        if (pagina + 1 < folhas) pagina += 1
+                    }
+                }
+                if (podeEnviar) {
+                    Botao("Enviar") {
+                        painelAberto = true
+                        ferramentas = false
+                    }
+                }
+                Botao("Fechar", preenchido = false, cor = Cinza) { ferramentas = false }
             }
         }
 
-        Column(
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .fillMaxHeight()
-                .padding(vertical = 72.dp, horizontal = 6.dp)
-                .width(56.dp)
-                .clip(FormaPequena)
-                .background(Branco.copy(alpha = 0.94f))
-                .border(1.dp, Borda, FormaPequena)
-                .padding(vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            FerramentaLateral("Ver", modo == ModoDesenho.Ver, Laranja) { entrarModo(ModoDesenho.Ver) }
-            FerramentaLateral("Lápis", modo == ModoDesenho.Lapis, Laranja) { entrarModo(ModoDesenho.Lapis) }
-            FerramentaLateral("Apagar", modo == ModoDesenho.Apagar, Cinza) { entrarModo(ModoDesenho.Apagar) }
-            FerramentaLateral("Erro", modo == ModoDesenho.Erro, Vermelho) { entrarModo(ModoDesenho.Erro) }
-            FerramentaLateral("Mudar", modo == ModoDesenho.Mudanca, Azul) { entrarModo(ModoDesenho.Mudanca) }
-            if (tracosPagina.isNotEmpty()) {
-                FerramentaLateral("Desfaz", false, Cinza) { desfazerUltimoTraco() }
-            }
-        }
-
-        if (!painelAberto && podeEnviar) {
+        if (!ferramentas && !painelAberto && modo != ModoDesenho.Ver) {
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(start = 12.dp, bottom = 16.dp, end = 72.dp)
-                    .width(160.dp),
+                    .padding(12.dp)
+                    .clip(FormaSelo)
+                    .background(LaranjaSuave)
+                    .border(1.dp, Color(0xFFFFD0B0), FormaSelo)
+                    .clickable {
+                        entrarModo(ModoDesenho.Ver)
+                    }
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+            ) {
+                Text(
+                    when (modo) {
+                        ModoDesenho.Lapis -> "Desenhando"
+                        ModoDesenho.Apagar -> "Apagando"
+                        ModoDesenho.Mudanca -> "Mudança"
+                        ModoDesenho.Erro -> "Erro"
+                        else -> "Ver"
+                    },
+                    color = LaranjaEscuro,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+
+        if (!ferramentas && !painelAberto && podeEnviar) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(12.dp)
+                    .width(120.dp),
             ) {
                 Botao("Enviar") { painelAberto = true }
             }
@@ -365,8 +438,7 @@ fun TelaDesenho(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .padding(end = 64.dp)
-                    .padding(10.dp)
+                    .padding(12.dp)
                     .clip(Forma)
                     .background(Branco)
                     .border(1.dp, Borda, Forma)
@@ -433,28 +505,6 @@ fun TelaDesenho(
 }
 
 @Composable
-private fun FerramentaLateral(rotulo: String, ativo: Boolean, cor: Color, aoClicar: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .width(48.dp)
-            .height(48.dp)
-            .clip(FormaSelo)
-            .background(if (ativo) cor else Branco)
-            .border(1.dp, if (ativo) cor else Borda, FormaSelo)
-            .clickable(onClick = aoClicar),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            rotulo,
-            color = if (ativo) Branco else Preto,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1,
-        )
-    }
-}
-
-@Composable
 private fun AreaPdf(
     modifier: Modifier,
     bitmap: Bitmap?,
@@ -467,17 +517,21 @@ private fun AreaPdf(
     telaCheia: Boolean = false,
     aoZoom: (Float, Offset) -> Unit,
     aoToque: (Float, Float) -> Unit,
+    aoDuploToque: () -> Unit = {},
     aoCommitTraco: (List<Offset>) -> Unit,
     aoApagarTracos: (Set<String>) -> Unit = {},
 ) {
     val density = LocalDensity.current
     val zoomAtual = rememberUpdatedState(aoZoom)
     val toqueAtual = rememberUpdatedState(aoToque)
+    val duploAtual = rememberUpdatedState(aoDuploToque)
     val commitAtual = rememberUpdatedState(aoCommitTraco)
     val apagarAtual = rememberUpdatedState(aoApagarTracos)
     val modoAtual = rememberUpdatedState(modo)
     val tracosAtual = rememberUpdatedState(tracos)
     var vivo by remember { mutableStateOf<List<Offset>>(emptyList()) }
+    var ultimoToqueMs by remember { mutableStateOf(0L) }
+    var ultimoToquePos by remember { mutableStateOf(Offset.Zero) }
     Box(
         modifier = modifier
             .then(
@@ -502,7 +556,8 @@ private fun AreaPdf(
                 val boxH = constraints.maxHeight.toFloat().coerceAtLeast(1f)
                 val imgW = bitmap.width.toFloat().coerceAtLeast(1f)
                 val imgH = bitmap.height.toFloat().coerceAtLeast(1f)
-                val fit = min(boxW / imgW, boxH / imgH)
+                // Cover: PDF preenche a tela toda (montagem vê o desenho dominante).
+                val fit = if (telaCheia) max(boxW / imgW, boxH / imgH) else min(boxW / imgW, boxH / imgH)
                 val desenhoW = imgW * fit
                 val desenhoH = imgH * fit
                 val desenhoWDp = with(density) { desenhoW.toDp() }
@@ -558,7 +613,6 @@ private fun AreaPdf(
                                         moveu = true
                                     } else if (pressionados.size == 1 && modoAgora == ModoDesenho.Ver) {
                                         val pan = evento.calculatePan()
-                                        // Ignora tremor do toque para ainda conseguir editar a marca.
                                         if (pan.getDistance() > 6f) {
                                             zoomAtual.value(evento.calculateZoom(), pan)
                                             moveu = true
@@ -570,22 +624,27 @@ private fun AreaPdf(
                                 vivo = emptyList()
                                 if (modoAgora == ModoDesenho.Lapis && !doisDedos && buffer.size >= 2) {
                                     commitAtual.value(buffer.toList())
-                                } else if (
-                                    (modoAgora == ModoDesenho.Apagar || modoAgora == ModoDesenho.Ver) &&
-                                    !doisDedos &&
-                                    !moveu
-                                ) {
+                                } else if (!doisDedos && !moveu) {
                                     val ponto = buffer.first()
-                                    toqueAtual.value(ponto.x, ponto.y)
-                                } else if (
-                                    modoAgora != ModoDesenho.Ver &&
-                                    modoAgora != ModoDesenho.Lapis &&
-                                    modoAgora != ModoDesenho.Apagar &&
-                                    !doisDedos &&
-                                    !moveu
-                                ) {
-                                    val ponto = buffer.first()
-                                    toqueAtual.value(ponto.x, ponto.y)
+                                    val agora = System.currentTimeMillis()
+                                    val dx = (ponto.x - ultimoToquePos.x) * size.width
+                                    val dy = (ponto.y - ultimoToquePos.y) * size.height
+                                    val perto = dx * dx + dy * dy < 80f * 80f
+                                    val duplo = agora - ultimoToqueMs in 40..350 && perto
+                                    if (duplo) {
+                                        ultimoToqueMs = 0L
+                                        duploAtual.value()
+                                    } else {
+                                        ultimoToqueMs = agora
+                                        ultimoToquePos = ponto
+                                        if (
+                                            modoAgora == ModoDesenho.Apagar ||
+                                            modoAgora == ModoDesenho.Ver ||
+                                            (modoAgora != ModoDesenho.Lapis)
+                                        ) {
+                                            toqueAtual.value(ponto.x, ponto.y)
+                                        }
+                                    }
                                 }
                             }
                         },
