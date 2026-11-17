@@ -24,7 +24,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -43,8 +45,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -57,6 +62,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.io.File
@@ -64,6 +70,168 @@ import kotlin.math.max
 import kotlin.math.min
 
 enum class ModoDesenho { Ver, Lapis, Apagar, Erro, Mudanca }
+
+private enum class IconeFerramenta { Lapis, Apagar, Mudar, Erro }
+
+private fun corDoModo(modo: ModoDesenho): Color = when (modo) {
+    ModoDesenho.Lapis -> Laranja
+    ModoDesenho.Apagar -> Cinza
+    ModoDesenho.Mudanca -> Azul
+    ModoDesenho.Erro -> Vermelho
+    ModoDesenho.Ver -> Laranja
+}
+
+private fun rotuloModo(modo: ModoDesenho): String = when (modo) {
+    ModoDesenho.Lapis -> "Desenhar"
+    ModoDesenho.Apagar -> "Apagar"
+    ModoDesenho.Mudanca -> "Mudar"
+    ModoDesenho.Erro -> "Erro"
+    ModoDesenho.Ver -> "Ver"
+}
+
+private fun iconeDoModo(modo: ModoDesenho): IconeFerramenta = when (modo) {
+    ModoDesenho.Apagar -> IconeFerramenta.Apagar
+    ModoDesenho.Mudanca -> IconeFerramenta.Mudar
+    ModoDesenho.Erro -> IconeFerramenta.Erro
+    else -> IconeFerramenta.Lapis
+}
+
+@Composable
+private fun BotaoFerramenta(
+    rotulo: String,
+    ativo: Boolean,
+    cor: Color,
+    icone: IconeFerramenta,
+    aoClicar: () -> Unit,
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier
+            .width(84.dp)
+            .clickable(onClick = aoClicar),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(72.dp)
+                .shadow(if (ativo) 6.dp else 0.dp, CircleShape)
+                .clip(CircleShape)
+                .background(if (ativo) cor else Branco)
+                .border(2.dp, if (ativo) cor else Borda, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            DesenharIconeFerramenta(icone, if (ativo) Branco else cor, 34.dp)
+        }
+        Text(
+            rotulo,
+            color = if (ativo) cor else Preto,
+            fontSize = 13.sp,
+            fontWeight = if (ativo) FontWeight.Bold else FontWeight.SemiBold,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun IconeModo(modo: ModoDesenho, ativo: Boolean, tamanho: Dp) {
+    val cor = corDoModo(modo)
+    Box(
+        modifier = Modifier
+            .size(tamanho)
+            .clip(CircleShape)
+            .background(if (ativo) cor else Branco)
+            .border(1.5.dp, cor, CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        DesenharIconeFerramenta(iconeDoModo(modo), if (ativo) Branco else cor, tamanho * 0.48f)
+    }
+}
+
+@Composable
+private fun DesenharIconeFerramenta(icone: IconeFerramenta, cor: Color, tamanho: Dp) {
+    Canvas(modifier = Modifier.size(tamanho)) {
+        val traco = Stroke(width = size.minDimension * 0.12f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        when (icone) {
+            IconeFerramenta.Lapis -> {
+                val path = Path().apply {
+                    moveTo(size.width * 0.28f, size.height * 0.72f)
+                    lineTo(size.width * 0.72f, size.height * 0.28f)
+                    lineTo(size.width * 0.82f, size.height * 0.38f)
+                    lineTo(size.width * 0.38f, size.height * 0.82f)
+                    close()
+                }
+                drawPath(path, color = cor)
+                drawLine(
+                    cor,
+                    Offset(size.width * 0.22f, size.height * 0.78f),
+                    Offset(size.width * 0.32f, size.height * 0.88f),
+                    strokeWidth = size.minDimension * 0.1f,
+                    cap = StrokeCap.Round,
+                )
+            }
+            IconeFerramenta.Apagar -> {
+                drawRoundRect(
+                    color = cor,
+                    topLeft = Offset(size.width * 0.22f, size.height * 0.28f),
+                    size = Size(size.width * 0.56f, size.height * 0.44f),
+                    cornerRadius = CornerRadius(6f, 6f),
+                    style = traco,
+                )
+                drawLine(
+                    cor,
+                    Offset(size.width * 0.2f, size.height * 0.72f),
+                    Offset(size.width * 0.8f, size.height * 0.72f),
+                    strokeWidth = size.minDimension * 0.1f,
+                    cap = StrokeCap.Round,
+                )
+            }
+            IconeFerramenta.Mudar -> {
+                drawLine(
+                    cor,
+                    Offset(size.width * 0.22f, size.height * 0.55f),
+                    Offset(size.width * 0.7f, size.height * 0.28f),
+                    strokeWidth = size.minDimension * 0.12f,
+                    cap = StrokeCap.Round,
+                )
+                drawLine(
+                    cor,
+                    Offset(size.width * 0.7f, size.height * 0.28f),
+                    Offset(size.width * 0.58f, size.height * 0.28f),
+                    strokeWidth = size.minDimension * 0.12f,
+                    cap = StrokeCap.Round,
+                )
+                drawLine(
+                    cor,
+                    Offset(size.width * 0.7f, size.height * 0.28f),
+                    Offset(size.width * 0.7f, size.height * 0.42f),
+                    strokeWidth = size.minDimension * 0.12f,
+                    cap = StrokeCap.Round,
+                )
+                drawCircle(
+                    color = cor,
+                    radius = size.minDimension * 0.1f,
+                    center = Offset(size.width * 0.28f, size.height * 0.72f),
+                )
+            }
+            IconeFerramenta.Erro -> {
+                drawCircle(color = cor, radius = size.minDimension * 0.38f, style = traco)
+                drawLine(
+                    cor,
+                    Offset(size.width * 0.5f, size.height * 0.28f),
+                    Offset(size.width * 0.5f, size.height * 0.58f),
+                    strokeWidth = size.minDimension * 0.12f,
+                    cap = StrokeCap.Round,
+                )
+                drawCircle(
+                    color = cor,
+                    radius = size.minDimension * 0.07f,
+                    center = Offset(size.width * 0.5f, size.height * 0.72f),
+                )
+            }
+        }
+    }
+}
 
 data class PinoDesenho(
     val id: String,
@@ -380,108 +548,126 @@ fun TelaDesenho(
             }
         }
 
-        if (ferramentas) {
+        // Dock de ferramentas (double-tap): ícones grandes, modo ativo óbvio, troca fluida.
+        if (ferramentas && !painelAberto) {
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .padding(12.dp)
+                    .padding(horizontal = 14.dp, vertical = 12.dp)
+                    .shadow(8.dp, Forma)
                     .clip(Forma)
-                    .background(Branco.copy(alpha = 0.96f))
+                    .background(Branco)
                     .border(1.dp, Borda, Forma)
-                    .padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                    .padding(horizontal = 12.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(
-                    quadro.codigo,
-                    color = Preto,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    "Ferramentas",
+                    color = Cinza,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Box(Modifier.weight(1f)) {
-                        Chip("Desenhar", modo == ModoDesenho.Lapis) {
-                            entrarModo(ModoDesenho.Lapis)
-                            ferramentas = false
-                        }
-                    }
-                    Box(Modifier.weight(1f)) {
-                        Chip("Apagar", modo == ModoDesenho.Apagar, Cinza) {
-                            entrarModo(ModoDesenho.Apagar)
-                            ferramentas = false
-                        }
-                    }
-                    Box(Modifier.weight(1f)) {
-                        Chip("Mudar", modo == ModoDesenho.Mudanca, Azul) {
-                            entrarModo(ModoDesenho.Mudanca)
-                            ferramentas = false
-                        }
-                    }
+                    BotaoFerramenta(
+                        rotulo = "Desenhar",
+                        ativo = modo == ModoDesenho.Lapis,
+                        cor = Laranja,
+                        icone = IconeFerramenta.Lapis,
+                    ) { entrarModo(ModoDesenho.Lapis) }
+                    BotaoFerramenta(
+                        rotulo = "Apagar",
+                        ativo = modo == ModoDesenho.Apagar,
+                        cor = Cinza,
+                        icone = IconeFerramenta.Apagar,
+                    ) { entrarModo(ModoDesenho.Apagar) }
+                    BotaoFerramenta(
+                        rotulo = "Mudar",
+                        ativo = modo == ModoDesenho.Mudanca,
+                        cor = Azul,
+                        icone = IconeFerramenta.Mudar,
+                    ) { entrarModo(ModoDesenho.Mudanca) }
+                    BotaoFerramenta(
+                        rotulo = "Erro",
+                        ativo = modo == ModoDesenho.Erro,
+                        cor = Vermelho,
+                        icone = IconeFerramenta.Erro,
+                    ) { entrarModo(ModoDesenho.Erro) }
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Chip("Erro", modo == ModoDesenho.Erro, Vermelho) {
-                        entrarModo(ModoDesenho.Erro)
-                        ferramentas = false
-                    }
-                    Chip("Ver", modo == ModoDesenho.Ver) {
-                        entrarModo(ModoDesenho.Ver)
-                        ferramentas = false
-                    }
                     if (tracosPagina.isNotEmpty()) {
-                        Chip("Desfazer", ativo = false, cor = Cinza) { desfazerUltimoTraco() }
+                        Box(modifier = Modifier.weight(1f)) {
+                            Botao("Desfazer", preenchido = false, cor = Cinza) { desfazerUltimoTraco() }
+                        }
+                    }
+                    if (podeEnviar) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            Botao("Enviar") {
+                                painelAberto = true
+                                ferramentas = false
+                            }
+                        }
+                    }
+                    Box(modifier = Modifier.weight(1f)) {
+                        Botao(
+                            if (modo == ModoDesenho.Ver) "Fechar" else "Pronto",
+                            preenchido = modo != ModoDesenho.Ver,
+                        ) {
+                            if (modo != ModoDesenho.Ver) {
+                                // Mantém o modo ativo; só esconde o dock.
+                                ferramentas = false
+                            } else {
+                                ferramentas = false
+                            }
+                        }
                     }
                 }
-                if (podeEnviar) {
-                    Botao("Enviar") {
-                        painelAberto = true
-                        ferramentas = false
-                    }
-                }
-                Botao("Fechar", preenchido = false, cor = Cinza) { ferramentas = false }
             }
         }
 
+        // Modo ativo óbvio quando o dock está fechado (um toque reabre).
         if (!ferramentas && !painelAberto && modo != ModoDesenho.Ver) {
-            Box(
+            Row(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(10.dp)
-                    .clip(FormaSelo)
-                    .background(LaranjaSuave)
-                    .border(1.dp, Color(0xFFFFD0B0), FormaSelo)
-                    .clickable { entrarModo(ModoDesenho.Ver) }
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                    .shadow(4.dp, Forma)
+                    .clip(Forma)
+                    .background(Branco)
+                    .border(1.5.dp, corDoModo(modo), Forma)
+                    .clickable { ferramentas = true }
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Text(
-                    when (modo) {
-                        ModoDesenho.Lapis -> "Desenhando"
-                        ModoDesenho.Apagar -> "Apagando"
-                        ModoDesenho.Mudanca -> "Mudança"
-                        ModoDesenho.Erro -> "Erro"
-                        else -> "Ver"
-                    },
-                    color = LaranjaEscuro,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                )
+                IconeModo(modo, ativo = true, tamanho = 36.dp)
+                Column {
+                    Text("Modo ativo", color = CinzaClaro, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                    Text(
+                        rotuloModo(modo),
+                        color = corDoModo(modo),
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                Text("Trocar", color = Laranja, fontSize = 13.sp, fontWeight = FontWeight.Bold)
             }
         }
 
         if (!ferramentas && !painelAberto && podeEnviar) {
             Box(
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 52.dp, end = 10.dp)
-                    .width(110.dp),
+                    .align(Alignment.TopStart)
+                    .padding(start = 64.dp, top = 10.dp)
+                    .width(120.dp),
             ) {
                 Botao("Enviar") { painelAberto = true }
             }
