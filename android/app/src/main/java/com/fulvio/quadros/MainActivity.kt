@@ -505,37 +505,25 @@ private fun Login(
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .background(GradienteMarca)
+            .background(Fundo)
             .padding(horizontal = 24.dp, vertical = 28.dp),
     ) {
         val largo = maxWidth >= 720.dp
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .widthIn(max = if (largo) 460.dp else maxWidth)
+                .widthIn(max = if (largo) 420.dp else maxWidth)
                 .align(if (largo) Alignment.Center else Alignment.TopCenter)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            MarcaQuadros(48)
-            Text(
-                "Montagem em produção",
-                color = Preto,
-                fontSize = 22.sp,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = (-0.2).sp,
-            )
-            Text(
-                "Desenho em tela cheia, marca e envia direto para a engenharia.",
-                color = Cinza,
-                fontSize = 15.sp,
-                lineHeight = 22.sp,
-            )
+            MarcaQuadros(44)
+            Text("Montagem", color = Cinza, fontSize = 15.sp, fontWeight = FontWeight.Medium)
             Cartao {
                 Campo("Servidor", servidor, aoMudar = aoServidor)
                 Campo("Login", login, aoMudar = aoLogin)
                 Campo("Senha", senha, senha = true, aoMudar = aoSenha)
-                Botao("Entrar e puxar projetos", aoClicar = aoEntrar)
+                Botao("Entrar", aoClicar = aoEntrar)
                 if (erro.isNotBlank()) {
                     Text(erro, color = Vermelho, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 }
@@ -567,50 +555,48 @@ private fun ListaProjetos(
         termo.isBlank() || listOf(quadro.codigo, quadro.ordemNumero, quadro.clienteNome, quadro.responsavelNome, quadro.caminho, ondeEsta(quadro.caminho))
             .any { it.lowercase().contains(termo) }
     }
-    Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         CabecalhoTela(
             titulo = "Projetos",
-            subtitulo = "$nome · ${if (offline) "Offline" else enlace}" +
-                if (statusSync.isNotBlank()) " · $statusSync" else "",
+            subtitulo = if (offline) "$nome · Offline" else nome,
             direita = { ContadorBadge("${visiveis.size}") },
         )
         if (novidade.isNotBlank()) {
-            FaixaAviso("Atualização: $novidade", aoDispensar = aoDispensarNovidade)
+            FaixaAviso(novidade, aoDispensar = aoDispensarNovidade)
         }
-        Campo("Buscar projeto", busca, aoMudar = aoBusca)
+        Campo("Buscar", busca, aoMudar = aoBusca)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Box(modifier = Modifier.weight(1f)) { Botao("Atualizar", aoClicar = aoAtualizar) }
+            Box(modifier = Modifier.weight(1.4f)) { Botao("Atualizar", aoClicar = aoAtualizar) }
             Box(modifier = Modifier.weight(1f)) { Botao("Sair", preenchido = false, cor = Cinza, aoClicar = aoSair) }
+        }
+        if (statusSync.isNotBlank()) {
+            Text(statusSync, color = CinzaClaro, fontSize = 12.sp, maxLines = 1)
         }
         if (visiveis.isEmpty()) {
             Cartao {
                 Text(
                     if (comEngenharia.isEmpty()) "Nenhum projeto com PDF" else "Nada encontrado",
                     color = Preto,
-                    fontSize = 18.sp,
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    if (comEngenharia.isEmpty()) {
-                        "Quando a engenharia salvar o desenho, ele entra sozinho."
-                    } else {
-                        "Tente outro termo de busca."
-                    },
+                    if (comEngenharia.isEmpty()) "Aguarde a engenharia publicar o desenho." else "Tente outra busca.",
                     color = Cinza,
-                    fontSize = 14.sp,
+                    fontSize = 13.sp,
                 )
             }
         } else {
             BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                val colunas = if (maxWidth >= 900.dp) 3 else if (maxWidth >= 600.dp) 2 else 1
+                val colunas = if (maxWidth >= 900.dp) 2 else 1
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(colunas),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     items(visiveis, key = { it.id }) { quadro ->
-                        CartaoProjeto(quadro, etapaDoCartao(dao, quadro, versao)) { aoAbrir(quadro) }
+                        CartaoProjeto(quadro) { aoAbrir(quadro) }
                     }
                 }
             }
@@ -619,61 +605,58 @@ private fun ListaProjetos(
 }
 
 @Composable
-private fun CartaoProjeto(quadro: QuadroLocal, etapa: String, aoAbrir: () -> Unit) {
+private fun CartaoProjeto(quadro: QuadroLocal, aoAbrir: () -> Unit) {
+    val rev = rotuloRev(quadro.vigenteCodigo)
+    val caminho = caminhoCurto(quadro.caminho)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(2.dp, Forma, ambientColor = Color(0x14000000), spotColor = Color(0x10000000))
             .clip(Forma)
             .background(Branco)
             .border(1.dp, Borda, Forma)
-            .clickable(onClick = aoAbrir),
+            .clickable(onClick = aoAbrir)
+            .padding(horizontal = 14.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Box(
-            modifier = Modifier
-                .width(5.dp)
-                .height(124.dp)
-                .background(Brush.verticalGradient(listOf(Laranja, LaranjaEscuro, Azul))),
-        )
         Column(
-            modifier = Modifier.weight(1f).padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(7.dp),
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    quadro.codigo,
+                    color = Preto,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    modifier = Modifier.weight(1f, fill = false),
+                    letterSpacing = (-0.2).sp,
+                )
+                if (rev != null) {
+                    SeloTexto("REV $rev", vigente = true)
+                }
+            }
             Text(
-                quadro.codigo,
-                color = Preto,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 2,
-                letterSpacing = (-0.2).sp,
-            )
-            Text(
-                ondeEsta(quadro.caminho).ifBlank { quadro.clienteNome.ifBlank { "Sem pasta" } },
-                color = Azul,
+                quadro.clienteNome.ifBlank { "Cliente" },
+                color = Cinza,
                 fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 2,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                SeloTexto(
-                    when {
-                        rotuloRev(quadro.vigenteCodigo) != null -> "Rev ${rotuloRev(quadro.vigenteCodigo)}"
-                        quadro.arquivoId.isNotBlank() -> "PDF pronto"
-                        else -> "Sem PDF"
-                    },
-                    rotuloRev(quadro.vigenteCodigo) != null || quadro.arquivoId.isNotBlank(),
+            if (caminho.isNotBlank()) {
+                Text(
+                    caminho,
+                    color = CinzaClaro,
+                    fontSize = 12.sp,
+                    maxLines = 1,
                 )
             }
-            Text(etapa, color = Cinza, fontSize = 12.sp, fontWeight = FontWeight.Medium)
         }
-        Text(
-            "›",
-            color = Laranja,
-            fontSize = 26.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(end = 14.dp),
-        )
+        Text("Abrir", color = Laranja, fontSize = 14.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -794,11 +777,11 @@ private fun TelaApontamentos(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         CabecalhoTela(titulo = "Apontamentos", subtitulo = quadro.codigo)
-        Botao("Marcar / desenhar no PDF", aoClicar = aoDesenho)
+        Botao("Abrir desenho", aoClicar = aoDesenho)
         if (locais.isEmpty() && notas.isEmpty() && pinos.none { it.enviado }) {
             Cartao {
-                Text("Nenhum apontamento ainda", color = Preto, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Text("No desenho, use Erro ou Mudança e envie. Aí abre o bate-papo com a engenharia.", color = Cinza, fontSize = 14.sp)
+                Text("Nenhum apontamento", color = Preto, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text("No Desenho, marque Erro ou Mudança e envie.", color = Cinza, fontSize = 13.sp)
             }
         }
         if (abertos.isNotEmpty()) {
@@ -874,39 +857,33 @@ private fun TelaOficina(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        CabecalhoTela(
-            titulo = "Oficina",
-            subtitulo = quadro.codigo,
-        )
+        CabecalhoTela(titulo = "Oficina", subtitulo = quadro.codigo)
         Cartao {
-            Text(quadro.codigo, color = Preto, fontSize = 22.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.2).sp)
-            SeloTexto(
-                rotuloRev(quadro.vigenteCodigo)?.let { "Rev $it" } ?: "Sem vigente",
-                rotuloRev(quadro.vigenteCodigo) != null,
-            )
-            Text("Enlace: ${if (offline) "Offline" else enlace}", color = Cinza, fontSize = 14.sp)
-            Text("Sync: ${horaLegivel(sync)}", color = Cinza, fontSize = 14.sp)
+            val rev = rotuloRev(quadro.vigenteCodigo)
+            if (rev != null) SeloTexto("REV $rev", vigente = true)
             Text(
                 when {
-                    quadro.vigenteId.isBlank() -> "Sem vigencia publicada"
-                    confirmadaAgora -> "Leitura confirmada"
+                    quadro.vigenteId.isBlank() -> "Sem vigente"
+                    confirmadaAgora -> "Leitura ok"
                     else -> "Leitura pendente"
                 },
                 color = Preto,
-                fontSize = 16.sp,
+                fontSize = 15.sp,
                 fontWeight = FontWeight.Bold,
             )
+            Text(if (offline) "Offline" else enlace, color = Cinza, fontSize = 13.sp)
+            Text("Sync ${horaLegivel(sync)}", color = CinzaClaro, fontSize = 12.sp)
             if (alerta.isNotBlank()) {
-                Text(alerta, color = Vermelho, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text(alerta, color = Vermelho, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
             }
             if (quadro.vigenteId.isNotBlank() && !confirmadaAgora) {
-                Botao("Confirmar leitura da vigente", aoClicar = aoConfirmar)
+                Botao("Confirmar leitura", aoClicar = aoConfirmar)
             }
         }
         Cartao {
-            Text("Etapas", color = Preto, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text("Etapa", color = Preto, fontSize = 16.sp, fontWeight = FontWeight.Bold)
             if (trava) {
-                Text("Confirme a leitura da vigente antes de avancar a etapa.", color = Vermelho, fontSize = 14.sp)
+                Text("Confirme a leitura antes de avançar.", color = Vermelho, fontSize = 13.sp)
             }
             Etapas.forEach { (codigo, nome) ->
                 Chip(
@@ -930,13 +907,13 @@ private fun TelaOficina(
             }
         }
         Cartao {
-            Text("Pendencia rapida", color = Preto, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            Campo("Descricao", texto, linhas = 3) { texto = it }
+            Text("Pendência", color = Preto, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Campo("Descrição", texto, linhas = 2) { texto = it }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Chip("Bloqueia etapa", bloqueia, Vermelho) { bloqueia = true }
-                Chip("Nao bloqueia", !bloqueia, Verde) { bloqueia = false }
+                Chip("Bloqueia", bloqueia, Vermelho) { bloqueia = true }
+                Chip("Não bloqueia", !bloqueia, Verde) { bloqueia = false }
             }
-            Botao("Abrir pendencia", enabled = texto.trim().isNotBlank(), preenchido = false) {
+            Botao("Abrir pendência", enabled = texto.trim().isNotBlank(), preenchido = false) {
                 val anotacao = texto.trim()
                 texto = ""
                 aoEnfileirar(
@@ -959,32 +936,24 @@ private fun Barra(aba: Aba, temProjeto: Boolean, aoEscolher: (Aba) -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 10.dp, vertical = 8.dp)
-            .shadow(6.dp, FormaNav, ambientColor = Color(0x18000000), spotColor = Color(0x14000000))
-            .clip(FormaNav)
             .background(Branco)
-            .border(1.dp, Borda, FormaNav)
-            .padding(horizontal = 6.dp, vertical = 6.dp),
+            .border(1.dp, Borda)
+            .padding(horizontal = 4.dp, vertical = 4.dp),
     ) {
         Aba.entries.forEach { item ->
             val ativa = aba == item
             val liberada = item == Aba.Projetos || temProjeto
-            val corFundo by animateColorAsState(
-                targetValue = if (ativa) LaranjaSuave else Color.Transparent,
-                animationSpec = tween(180),
-                label = "abaFundo",
-            )
             val corIcone by animateColorAsState(
                 targetValue = if (ativa) Laranja else if (liberada) Preto else CinzaClaro,
-                animationSpec = tween(180),
+                animationSpec = tween(160),
                 label = "abaIcone",
             )
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .height(64.dp)
+                    .height(58.dp)
                     .clip(FormaPequena)
-                    .background(corFundo)
+                    .background(if (ativa) LaranjaSuave else Color.Transparent)
                     .clickable(enabled = liberada) { aoEscolher(item) },
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
@@ -994,7 +963,7 @@ private fun Barra(aba: Aba, temProjeto: Boolean, aoEscolher: (Aba) -> Unit) {
                     item.rotulo,
                     color = if (ativa) LaranjaEscuro else if (liberada) Preto else CinzaClaro,
                     fontSize = 11.sp,
-                    fontWeight = if (ativa) FontWeight.Bold else FontWeight.SemiBold,
+                    fontWeight = if (ativa) FontWeight.Bold else FontWeight.Medium,
                 )
             }
         }
@@ -1058,7 +1027,6 @@ private fun ondeEsta(caminho: String): String {
     val marca = "\\projetos elétricos\\"
     val idx = limpo.lowercase().indexOf(marca)
     var relativo = if (idx >= 0) limpo.substring(idx + marca.length) else limpo.trimStart('\\')
-    // caminho pode vir como ...\PDF#STEM — mostra o quadro separado.
     val hash = relativo.lastIndexOf('#')
     val stem = if (hash >= 0) {
         val s = relativo.substring(hash + 1)
@@ -1067,6 +1035,14 @@ private fun ondeEsta(caminho: String): String {
     } else ""
     val base = relativo.removeSuffix("\\PDF").removeSuffix("\\pdf").replace("\\", " › ")
     return if (stem.isNotBlank() && !base.contains(stem, ignoreCase = true)) "$base › $stem" else base
+}
+
+/** Últimos segmentos do caminho — legível no cartão sem poluir. */
+private fun caminhoCurto(caminho: String): String {
+    val longo = ondeEsta(caminho)
+    if (longo.isBlank()) return ""
+    val partes = longo.split(" › ").filter { it.isNotBlank() }
+    return if (partes.size <= 2) longo else partes.takeLast(2).joinToString(" › ")
 }
 
 private fun horaLegivel(iso: String): String {

@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -25,8 +24,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
@@ -39,39 +36,28 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/**
- * Tema oficina moderna: pedra fria + laranja de oficina.
- * Evita cream/terracota genérico e dark mode.
- */
-val Fundo = Color(0xFFF2F4F7)
-val FundoFaixa = Color(0xFFE7ECF2)
+/** Fábrica: laranja + branco. Claro, sem dark mode. */
+val Fundo = Color(0xFFF7F7F5)
+val FundoFaixa = Color(0xFFEEEEEC)
 val Branco = Color(0xFFFFFFFF)
-val Preto = Color(0xFF12151A)
-val Cinza = Color(0xFF5C6570)
-val CinzaClaro = Color(0xFF8A939E)
-val Borda = Color(0xFFD5DCE5)
-val Laranja = Color(0xFFF05A28)
-val LaranjaEscuro = Color(0xFFD9481A)
-val LaranjaSuave = Color(0xFFFFEFE8)
+val Preto = Color(0xFF1A1A1A)
+val Cinza = Color(0xFF5A5A5A)
+val CinzaClaro = Color(0xFF8E8E8E)
+val Borda = Color(0xFFDCDCD8)
+val Laranja = Color(0xFFE85D04)
+val LaranjaEscuro = Color(0xFFC44D00)
+val LaranjaSuave = Color(0xFFFFF1E6)
 val Amarelo = Laranja
-val Vermelho = Color(0xFFC0392B)
-val Azul = Color(0xFF0E7490)
-val Verde = Color(0xFF0F7A45)
-val Forma = RoundedCornerShape(18.dp)
-val FormaSelo = RoundedCornerShape(10.dp)
-val FormaPequena = RoundedCornerShape(14.dp)
-val Folha = RoundedCornerShape(8.dp)
-val FormaNav = RoundedCornerShape(16.dp)
+val Vermelho = Color(0xFFB42318)
+val Azul = Color(0xFF175CD3)
+val Verde = Color(0xFF067647)
+val Forma = RoundedCornerShape(12.dp)
+val FormaSelo = RoundedCornerShape(6.dp)
+val FormaPequena = RoundedCornerShape(10.dp)
+val Folha = RoundedCornerShape(4.dp)
+val FormaNav = RoundedCornerShape(0.dp)
 
 val FonteMarca = FontFamily.SansSerif
-
-val GradienteMarca = Brush.verticalGradient(
-    colors = listOf(Color(0xFFF8FAFC), FundoFaixa, Color(0xFFE2E8F0)),
-)
-
-val GradienteHero = Brush.linearGradient(
-    colors = listOf(Color(0xFFF05A28), Color(0xFFE07830), Color(0xFF0E7490)),
-)
 
 @Composable
 fun CabecalhoTela(
@@ -88,10 +74,10 @@ fun CabecalhoTela(
             Text(
                 titulo,
                 color = Preto,
-                fontSize = 28.sp,
+                fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FonteMarca,
-                letterSpacing = (-0.4).sp,
+                letterSpacing = (-0.3).sp,
             )
             if (subtitulo.isNotBlank()) {
                 Text(
@@ -99,7 +85,7 @@ fun CabecalhoTela(
                     color = Cinza,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -113,12 +99,11 @@ fun Cartao(modifier: Modifier = Modifier, conteudo: @Composable () -> Unit) {
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .shadow(2.dp, Forma, ambientColor = Color(0x14000000), spotColor = Color(0x10000000))
             .clip(Forma)
             .background(Branco)
             .border(1.dp, Borda, Forma)
-            .padding(18.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         conteudo()
     }
@@ -133,7 +118,9 @@ fun Campo(
     aoMudar: (String) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(rotulo, color = Cinza, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.2.sp)
+        if (rotulo.isNotBlank()) {
+            Text(rotulo, color = Cinza, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        }
         BasicTextField(
             value = valor,
             onValueChange = aoMudar,
@@ -141,7 +128,7 @@ fun Campo(
             maxLines = linhas.coerceAtLeast(1),
             textStyle = TextStyle(
                 color = Preto,
-                fontSize = 17.sp,
+                fontSize = 16.sp,
                 fontWeight = FontWeight.Medium,
                 fontFamily = FonteMarca,
             ),
@@ -149,11 +136,11 @@ fun Campo(
             visualTransformation = if (senha) PasswordVisualTransformation() else VisualTransformation.None,
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = if (linhas > 1) 112.dp else 54.dp)
+                .heightIn(min = if (linhas > 1) 96.dp else 52.dp)
                 .clip(FormaPequena)
-                .background(Color(0xFFF7F9FB))
+                .background(Branco)
                 .border(1.dp, Borda, FormaPequena)
-                .padding(horizontal = 16.dp, vertical = 14.dp),
+                .padding(horizontal = 14.dp, vertical = 12.dp),
         )
     }
 }
@@ -168,17 +155,17 @@ fun Botao(
 ) {
     val fundo by animateColorAsState(
         targetValue = when {
-            !enabled -> Color(0xFFE4E8EE)
+            !enabled -> Color(0xFFE8E8E6)
             preenchido -> cor
             else -> Branco
         },
-        animationSpec = tween(180, easing = FastOutSlowInEasing),
+        animationSpec = tween(160, easing = FastOutSlowInEasing),
         label = "botaoFundo",
     )
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(54.dp)
+            .height(52.dp)
             .clip(FormaPequena)
             .background(fundo)
             .then(
@@ -196,7 +183,6 @@ fun Botao(
             },
             fontSize = 15.sp,
             fontWeight = FontWeight.Bold,
-            letterSpacing = 0.3.sp,
         )
     }
 }
@@ -205,12 +191,12 @@ fun Botao(
 fun Chip(texto: String, ativo: Boolean, cor: Color = Laranja, aoClicar: () -> Unit) {
     val fundo by animateColorAsState(
         targetValue = if (ativo) cor else Branco,
-        animationSpec = tween(160),
+        animationSpec = tween(140),
         label = "chipFundo",
     )
     Box(
         modifier = Modifier
-            .height(40.dp)
+            .height(44.dp)
             .clip(FormaSelo)
             .background(fundo)
             .border(1.dp, if (ativo) cor else Borda, FormaSelo)
@@ -236,7 +222,7 @@ fun Pilula(
 ) {
     Box(
         modifier = Modifier
-            .height(38.dp)
+            .height(40.dp)
             .clip(FormaSelo)
             .background(if (preenchida && enabled) Laranja else Branco)
             .border(1.dp, if (enabled) Laranja else Borda, FormaSelo)
@@ -263,13 +249,12 @@ fun SeloTexto(texto: String, vigente: Boolean) {
         texto,
         modifier = Modifier
             .clip(FormaSelo)
-            .background(if (vigente) LaranjaSuave else Color(0xFFF0F3F6))
-            .border(1.dp, if (vigente) Color(0xFFFFCDB8) else Borda, FormaSelo)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            .background(if (vigente) LaranjaSuave else FundoFaixa)
+            .border(1.dp, if (vigente) Color(0xFFFFD0B0) else Borda, FormaSelo)
+            .padding(horizontal = 10.dp, vertical = 4.dp),
         color = if (vigente) LaranjaEscuro else Cinza,
         fontSize = 12.sp,
         fontWeight = FontWeight.Bold,
-        letterSpacing = 0.2.sp,
     )
 }
 
@@ -278,12 +263,11 @@ fun ContadorBadge(valor: String) {
     Box(
         modifier = Modifier
             .clip(FormaSelo)
-            .background(LaranjaSuave)
-            .border(1.dp, Color(0xFFFFCDB8), FormaSelo)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .background(Laranja)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(valor, color = LaranjaEscuro, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        Text(valor, color = Branco, fontSize = 14.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -298,25 +282,19 @@ fun FaixaAviso(
             .fillMaxWidth()
             .clip(FormaPequena)
             .background(LaranjaSuave)
-            .border(1.dp, Color(0xFFFFCDB8), FormaPequena)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .border(1.dp, Color(0xFFFFD0B0), FormaPequena)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Box(
-            modifier = Modifier
-                .width(4.dp)
-                .height(28.dp)
-                .clip(RoundedCornerShape(2.dp))
-                .background(Laranja),
-        )
         Text(
             texto,
             color = Preto,
             fontSize = 13.sp,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.weight(1f),
-            maxLines = 2,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
         Text(
             acao,
@@ -326,7 +304,7 @@ fun FaixaAviso(
             modifier = Modifier
                 .clip(FormaSelo)
                 .clickable(onClick = aoDispensar)
-                .padding(horizontal = 10.dp, vertical = 6.dp),
+                .padding(horizontal = 8.dp, vertical = 4.dp),
         )
     }
 }
@@ -342,14 +320,14 @@ fun DivisorSuave(altura: Dp = 1.dp) {
 }
 
 @Composable
-fun MarcaQuadros(tamanho: Int = 42) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+fun MarcaQuadros(tamanho: Int = 40) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Box(
             modifier = Modifier
                 .height(4.dp)
-                .width(48.dp)
+                .width(40.dp)
                 .clip(RoundedCornerShape(2.dp))
-                .background(GradienteHero),
+                .background(Laranja),
         )
         Text(
             "QUADROS",
@@ -357,7 +335,7 @@ fun MarcaQuadros(tamanho: Int = 42) {
             fontSize = tamanho.sp,
             fontWeight = FontWeight.Black,
             fontFamily = FonteMarca,
-            letterSpacing = (-1).sp,
+            letterSpacing = (-0.8).sp,
         )
     }
 }

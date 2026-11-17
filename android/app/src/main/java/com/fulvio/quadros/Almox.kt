@@ -197,11 +197,8 @@ fun TelaAlmox(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        CabecalhoTela(
-            titulo = "Almoxarifado",
-            subtitulo = "Projeto ${quadro.codigo} · entra na fila do estoque com horário",
-        )
-        Campo("Pesquisar no Firebird (código, nome ou modelo)", busca, aoMudar = { busca = it })
+        CabecalhoTela(titulo = "Almox", subtitulo = quadro.codigo)
+        Campo("Buscar produto", busca, aoMudar = { busca = it })
         if (status.isNotBlank()) {
             Text(status, color = LaranjaEscuro, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         }
@@ -276,7 +273,7 @@ fun TelaAlmox(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("Pedido (${carrinho.size})", color = Preto, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text("Pedido · ${carrinho.size}", color = Preto, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                 carrinho.forEach { item ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(modifier = Modifier.weight(1f)) {
@@ -312,8 +309,8 @@ fun TelaAlmox(
                             .padding(8.dp))
                     }
                 }
-                Campo("Observação para o almox (opcional)", observacao, linhas = 2, aoMudar = { observacao = it })
-                Botao("ENVIAR PARA O ESTOQUE", enabled = !enviando && token.isNotBlank()) {
+                Campo("Observação", observacao, linhas = 2, aoMudar = { observacao = it })
+                Botao("Enviar ao estoque", enabled = !enviando && token.isNotBlank()) {
                     enviando = true
                     erro = ""
                     escopo.launch {

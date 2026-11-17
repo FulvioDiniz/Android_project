@@ -7,6 +7,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
@@ -250,7 +251,9 @@ fun TelaDesenho(
         if (rascunho != null) painelAberto = true
     }
 
-    // PDF ocupa 100% da tela; topo/ferramentas flutuam por cima (não comem espaço).
+    // PDF em tela cheia; ferramentas na lateral direita (não cobrem o desenho).
+    val alvo = rascunho
+    val podeEnviar = alvo != null || tracosPagina.isNotEmpty()
     Box(modifier = Modifier.fillMaxSize().background(Branco)) {
         AreaPdf(
             modifier = Modifier.fillMaxSize(),
@@ -295,14 +298,14 @@ fun TelaDesenho(
 
         Row(
             modifier = Modifier
-                .align(Alignment.TopCenter)
+                .align(Alignment.TopStart)
                 .fillMaxWidth()
-                .padding(10.dp)
-                .shadow(4.dp, FormaPequena)
+                .padding(end = 64.dp)
+                .padding(8.dp)
                 .clip(FormaPequena)
-                .background(Branco.copy(alpha = 0.94f))
+                .background(Branco.copy(alpha = 0.92f))
                 .border(1.dp, Borda, FormaPequena)
-                .padding(horizontal = 10.dp, vertical = 8.dp),
+                .padding(horizontal = 8.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -310,19 +313,14 @@ fun TelaDesenho(
             Text(
                 quadro.codigo,
                 color = Preto,
-                fontSize = 15.sp,
+                fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Pilula("‹", enabled = pagina > 0) { pagina = (pagina - 1).coerceAtLeast(0) }
-            Text(
-                "${pagina + 1}/${max(folhas, 1)}",
-                color = Cinza,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-            )
+            Text("${pagina + 1}/${max(folhas, 1)}", color = Cinza, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             Pilula("›", enabled = pagina + 1 < folhas) {
                 if (pagina + 1 < folhas) pagina += 1
             }
@@ -330,74 +328,75 @@ fun TelaDesenho(
 
         Column(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .padding(10.dp)
-                .shadow(6.dp, Forma)
-                .clip(Forma)
-                .background(Branco.copy(alpha = 0.96f))
-                .border(1.dp, Borda, Forma)
-                .padding(10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+                .align(Alignment.CenterEnd)
+                .fillMaxHeight()
+                .padding(vertical = 72.dp, horizontal = 6.dp)
+                .width(56.dp)
+                .clip(FormaPequena)
+                .background(Branco.copy(alpha = 0.94f))
+                .border(1.dp, Borda, FormaPequena)
+                .padding(vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Chip("Ver", modo == ModoDesenho.Ver) { entrarModo(ModoDesenho.Ver) }
-                Chip("Desenhar", modo == ModoDesenho.Lapis) { entrarModo(ModoDesenho.Lapis) }
-                Chip("Apagar", modo == ModoDesenho.Apagar, Cinza) { entrarModo(ModoDesenho.Apagar) }
-                Chip("Erro", modo == ModoDesenho.Erro, Vermelho) { entrarModo(ModoDesenho.Erro) }
-                Chip("Mudança", modo == ModoDesenho.Mudanca, Azul) { entrarModo(ModoDesenho.Mudanca) }
-                if (tracosPagina.isNotEmpty()) {
-                    Chip("Desfazer", ativo = false, cor = Cinza) { desfazerUltimoTraco() }
-                    Chip("Limpar", ativo = false, cor = Cinza) { limparTracosFolha() }
-                }
+            FerramentaLateral("Ver", modo == ModoDesenho.Ver, Laranja) { entrarModo(ModoDesenho.Ver) }
+            FerramentaLateral("Lápis", modo == ModoDesenho.Lapis, Laranja) { entrarModo(ModoDesenho.Lapis) }
+            FerramentaLateral("Apagar", modo == ModoDesenho.Apagar, Cinza) { entrarModo(ModoDesenho.Apagar) }
+            FerramentaLateral("Erro", modo == ModoDesenho.Erro, Vermelho) { entrarModo(ModoDesenho.Erro) }
+            FerramentaLateral("Mudar", modo == ModoDesenho.Mudanca, Azul) { entrarModo(ModoDesenho.Mudanca) }
+            if (tracosPagina.isNotEmpty()) {
+                FerramentaLateral("Desfaz", false, Cinza) { desfazerUltimoTraco() }
             }
-            val alvo = rascunho
-            val podeEnviar = alvo != null || tracosPagina.isNotEmpty()
-            if (!painelAberto) {
-                Botao(
-                    if (podeEnviar) "Continuar para enviar" else "Abrir envio / comentário",
-                    preenchido = podeEnviar,
-                    cor = if (podeEnviar) Laranja else Cinza,
-                ) { painelAberto = true }
-            } else {
+        }
+
+        if (!painelAberto && podeEnviar) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 12.dp, bottom = 16.dp, end = 72.dp)
+                    .width(160.dp),
+            ) {
+                Botao("Enviar") { painelAberto = true }
+            }
+        }
+
+        if (painelAberto) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(end = 64.dp)
+                    .padding(10.dp)
+                    .clip(Forma)
+                    .background(Branco)
+                    .border(1.dp, Borda, Forma)
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 if (alvo == null && tracosPagina.isEmpty()) {
-                    Text(
-                        "Desenhe, marque Erro/Mudança e depois envie. Dois dedos = zoom.",
-                        color = Cinza,
-                        fontSize = 13.sp,
-                    )
+                    Text("Marque no desenho e envie.", color = Cinza, fontSize = 13.sp)
                     Botao("Fechar", preenchido = false, cor = Cinza) { painelAberto = false }
                 } else if (alvo == null) {
-                    Text(
-                        "${tracosPagina.size} traço(s) prontos para a engenharia",
-                        color = Preto,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Campo("Comentário (opcional)", texto, linhas = 2, aoMudar = { texto = it })
-                    Botao("ENVIAR PARA ENGENHARIA") {
+                    Text("${tracosPagina.size} traço(s)", color = Preto, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Campo("Comentário", texto, linhas = 2, aoMudar = { texto = it })
+                    Botao("Enviar") {
                         val mensagem = texto.trim().ifBlank { "Marcação no desenho" }
                         aoEnviar(null, mensagem, tracosPagina)
                         texto = ""
                         modo = ModoDesenho.Ver
                         painelAberto = false
                     }
-                    Botao("Fechar sem enviar", preenchido = false, cor = Cinza) { painelAberto = false }
+                    Botao("Fechar", preenchido = false, cor = Cinza) { painelAberto = false }
                 } else {
                     Text(
-                        if (alvo.tipo == ModoDesenho.Erro) "Erro nesta folha" else "Mudança nesta folha",
+                        if (alvo.tipo == ModoDesenho.Erro) "Erro" else "Mudança",
                         color = Preto,
-                        fontSize = 16.sp,
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                     )
-                    Text("Toque de novo no PDF para mover a marca.", color = Cinza, fontSize = 12.sp)
-                    Campo("Descreva o problema", texto, linhas = 3, aoMudar = { texto = it })
+                    Campo("Descrição", texto, linhas = 2, aoMudar = { texto = it })
                     Botao(
-                        "ENVIAR PARA ENGENHARIA",
+                        "Enviar",
                         enabled = texto.trim().isNotBlank() || tracosPagina.isNotEmpty(),
                     ) {
                         val mensagem = texto.trim().ifBlank { "Marcação no desenho" }
@@ -411,7 +410,7 @@ fun TelaDesenho(
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Box(modifier = Modifier.weight(1f)) {
-                            Botao("Apagar marca", preenchido = false, cor = Vermelho) {
+                            Botao("Apagar", preenchido = false, cor = Vermelho) {
                                 removerPino(alvo.id)
                                 texto = ""
                                 modo = ModoDesenho.Ver
@@ -430,6 +429,28 @@ fun TelaDesenho(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun FerramentaLateral(rotulo: String, ativo: Boolean, cor: Color, aoClicar: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .width(48.dp)
+            .height(48.dp)
+            .clip(FormaSelo)
+            .background(if (ativo) cor else Branco)
+            .border(1.dp, if (ativo) cor else Borda, FormaSelo)
+            .clickable(onClick = aoClicar),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            rotulo,
+            color = if (ativo) Branco else Preto,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+        )
     }
 }
 
@@ -611,24 +632,6 @@ private fun AreaPdf(
                     }
                 }
             }
-            Text(
-                when (modo) {
-                    ModoDesenho.Ver -> "Pinça para zoom · toque numa marca para editar"
-                    ModoDesenho.Lapis -> "Arraste o dedo para desenhar em laranja"
-                    ModoDesenho.Apagar -> "Passe no traço para apagar · toque na marca"
-                    else -> "Toque no ponto do desenho para marcar"
-                },
-                color = Preto,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(12.dp)
-                    .clip(FormaPequena)
-                    .background(LaranjaSuave)
-                    .border(1.dp, Borda, FormaPequena)
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-            )
         } else {
             Column(
                 modifier = Modifier
