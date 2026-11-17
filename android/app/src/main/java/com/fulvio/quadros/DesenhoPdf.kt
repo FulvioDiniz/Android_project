@@ -302,20 +302,82 @@ fun TelaDesenho(
             },
             aoCommitTraco = { pontos -> guardarTraco(pontos) },
             aoApagarTracos = { ids -> apagarTracos(ids) },
+            aoMudarPagina = { delta ->
+                val nova = (pagina + delta).coerceIn(0, (folhas - 1).coerceAtLeast(0))
+                if (nova != pagina) {
+                    pagina = nova
+                    escala = 1f
+                    deslocamento = Offset.Zero
+                }
+            },
         )
 
-        // Chrome mínimo: só voltar no canto.
+        // Chrome mínimo: voltar + navegação de folhas sempre visível.
         Box(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .padding(10.dp)
                 .clip(FormaSelo)
-                .background(Branco.copy(alpha = 0.88f))
+                .background(Branco.copy(alpha = 0.92f))
                 .border(1.dp, Borda, FormaSelo)
                 .clickable(onClick = aoVoltar)
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
             Text("‹", color = Laranja, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        }
+
+        if (!ferramentas && !painelAberto) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+                    .clip(Forma)
+                    .background(Branco.copy(alpha = 0.94f))
+                    .border(1.dp, Borda, Forma)
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                        .clip(FormaPequena)
+                        .background(if (pagina > 0) LaranjaSuave else FundoFaixa)
+                        .border(1.dp, if (pagina > 0) Color(0xFFFFD0B0) else Borda, FormaPequena)
+                        .clickable(enabled = pagina > 0) {
+                            pagina = (pagina - 1).coerceAtLeast(0)
+                            escala = 1f
+                            deslocamento = Offset.Zero
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("‹ Folha", color = if (pagina > 0) LaranjaEscuro else CinzaClaro, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                }
+                Text(
+                    "Folha ${pagina + 1}/${max(folhas, 1)}",
+                    color = Preto,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                        .clip(FormaPequena)
+                        .background(if (pagina + 1 < folhas) LaranjaSuave else FundoFaixa)
+                        .border(1.dp, if (pagina + 1 < folhas) Color(0xFFFFD0B0) else Borda, FormaPequena)
+                        .clickable(enabled = pagina + 1 < folhas) {
+                            pagina += 1
+                            escala = 1f
+                            deslocamento = Offset.Zero
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("Folha ›", color = if (pagina + 1 < folhas) LaranjaEscuro else CinzaClaro, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                }
+            }
         }
 
         if (ferramentas) {
@@ -377,12 +439,6 @@ fun TelaDesenho(
                     if (tracosPagina.isNotEmpty()) {
                         Chip("Desfazer", ativo = false, cor = Cinza) { desfazerUltimoTraco() }
                     }
-                    Spacer(Modifier.weight(1f))
-                    Pilula("‹", enabled = pagina > 0) { pagina = (pagina - 1).coerceAtLeast(0) }
-                    Text("${pagina + 1}/${max(folhas, 1)}", color = Cinza, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    Pilula("›", enabled = pagina + 1 < folhas) {
-                        if (pagina + 1 < folhas) pagina += 1
-                    }
                 }
                 if (podeEnviar) {
                     Botao("Enviar") {
@@ -397,14 +453,12 @@ fun TelaDesenho(
         if (!ferramentas && !painelAberto && modo != ModoDesenho.Ver) {
             Box(
                 modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(12.dp)
+                    .align(Alignment.TopEnd)
+                    .padding(10.dp)
                     .clip(FormaSelo)
                     .background(LaranjaSuave)
                     .border(1.dp, Color(0xFFFFD0B0), FormaSelo)
-                    .clickable {
-                        entrarModo(ModoDesenho.Ver)
-                    }
+                    .clickable { entrarModo(ModoDesenho.Ver) }
                     .padding(horizontal = 10.dp, vertical = 6.dp),
             ) {
                 Text(
@@ -425,9 +479,9 @@ fun TelaDesenho(
         if (!ferramentas && !painelAberto && podeEnviar) {
             Box(
                 modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(12.dp)
-                    .width(120.dp),
+                    .align(Alignment.TopEnd)
+                    .padding(top = 52.dp, end = 10.dp)
+                    .width(110.dp),
             ) {
                 Botao("Enviar") { painelAberto = true }
             }
@@ -520,6 +574,7 @@ private fun AreaPdf(
     aoDuploToque: () -> Unit = {},
     aoCommitTraco: (List<Offset>) -> Unit,
     aoApagarTracos: (Set<String>) -> Unit = {},
+    aoMudarPagina: (Int) -> Unit = {},
 ) {
     val density = LocalDensity.current
     val zoomAtual = rememberUpdatedState(aoZoom)
@@ -527,7 +582,9 @@ private fun AreaPdf(
     val duploAtual = rememberUpdatedState(aoDuploToque)
     val commitAtual = rememberUpdatedState(aoCommitTraco)
     val apagarAtual = rememberUpdatedState(aoApagarTracos)
+    val paginaAtual = rememberUpdatedState(aoMudarPagina)
     val modoAtual = rememberUpdatedState(modo)
+    val escalaAtual = rememberUpdatedState(escala)
     val tracosAtual = rememberUpdatedState(tracos)
     var vivo by remember { mutableStateOf<List<Offset>>(emptyList()) }
     var ultimoToqueMs by remember { mutableStateOf(0L) }
@@ -549,17 +606,35 @@ private fun AreaPdf(
     ) {
         if (bitmap != null && falha.isBlank()) {
             BoxWithConstraints(
-                modifier = Modifier.fillMaxSize().padding(if (telaCheia) 0.dp else 8.dp),
+                // Reserva faixa inferior da barra de folhas (~72dp) para o fit limpo.
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(
+                        start = if (telaCheia) 0.dp else 8.dp,
+                        end = if (telaCheia) 0.dp else 8.dp,
+                        top = if (telaCheia) 0.dp else 8.dp,
+                        bottom = if (telaCheia) 72.dp else 8.dp,
+                    ),
                 contentAlignment = Alignment.Center,
             ) {
                 val boxW = constraints.maxWidth.toFloat().coerceAtLeast(1f)
                 val boxH = constraints.maxHeight.toFloat().coerceAtLeast(1f)
                 val imgW = bitmap.width.toFloat().coerceAtLeast(1f)
                 val imgH = bitmap.height.toFloat().coerceAtLeast(1f)
-                // Cover: PDF preenche a tela toda (montagem vê o desenho dominante).
-                val fit = if (telaCheia) max(boxW / imgW, boxH / imgH) else min(boxW / imgW, boxH / imgH)
+                // Fit-to-width preferido (folha legível, sem letterbox feio).
+                // Se a folha couber inteira (fit-page >= fit-width), usa fit-page.
+                // Sem crop lateral nem distorção; pan vertical quando a folha for mais alta.
+                val fitW = boxW / imgW
+                val fitH = boxH / imgH
+                val fitPage = min(fitW, fitH)
+                val fit = if (telaCheia) {
+                    if (fitPage >= fitW * 0.98f) fitPage else fitW
+                } else {
+                    fitPage
+                }
                 val desenhoW = imgW * fit
                 val desenhoH = imgH * fit
+                val precisaPanVertical = telaCheia && desenhoH > boxH + 2f
                 val desenhoWDp = with(density) { desenhoW.toDp() }
                 val desenhoHDp = with(density) { desenhoH.toDp() }
                 Box(
@@ -572,7 +647,7 @@ private fun AreaPdf(
                             translationX = deslocamento.x,
                             translationY = deslocamento.y,
                         )
-                        .pointerInput(desenhoW, desenhoH) {
+                        .pointerInput(desenhoW, desenhoH, precisaPanVertical) {
                             fun normalizar(x: Float, y: Float) = Offset(
                                 (x / size.width.toFloat().coerceAtLeast(1f)).coerceIn(0f, 1f),
                                 (y / size.height.toFloat().coerceAtLeast(1f)).coerceIn(0f, 1f),
@@ -584,6 +659,7 @@ private fun AreaPdf(
                                 if (modoAgora == ModoDesenho.Lapis) vivo = buffer.toList()
                                 var doisDedos = false
                                 var moveu = false
+                                var arrasto = Offset.Zero
                                 val apagados = linkedSetOf<String>()
                                 fun apagarNoPonto(ponto: Offset) {
                                     val hit = tracosAtual.value.filter { pontoPertoDoTraco(ponto, it) }.map { it.id }
@@ -613,8 +689,12 @@ private fun AreaPdf(
                                         moveu = true
                                     } else if (pressionados.size == 1 && modoAgora == ModoDesenho.Ver) {
                                         val pan = evento.calculatePan()
+                                        arrasto += pan
                                         if (pan.getDistance() > 6f) {
-                                            zoomAtual.value(evento.calculateZoom(), pan)
+                                            // Zoom ou folha mais alta que a tela: pan. Senão guarda para swipe.
+                                            if (escalaAtual.value > 1.05f || precisaPanVertical) {
+                                                zoomAtual.value(1f, pan)
+                                            }
                                             moveu = true
                                         }
                                     }
@@ -624,6 +704,25 @@ private fun AreaPdf(
                                 vivo = emptyList()
                                 if (modoAgora == ModoDesenho.Lapis && !doisDedos && buffer.size >= 2) {
                                     commitAtual.value(buffer.toList())
+                                } else if (
+                                    modoAgora == ModoDesenho.Ver &&
+                                    !doisDedos &&
+                                    escalaAtual.value <= 1.05f &&
+                                    !precisaPanVertical &&
+                                    kotlin.math.abs(arrasto.x) > 72f &&
+                                    kotlin.math.abs(arrasto.x) > kotlin.math.abs(arrasto.y) * 1.4f
+                                ) {
+                                    paginaAtual.value(if (arrasto.x < 0f) 1 else -1)
+                                } else if (
+                                    modoAgora == ModoDesenho.Ver &&
+                                    !doisDedos &&
+                                    escalaAtual.value <= 1.05f &&
+                                    precisaPanVertical &&
+                                    kotlin.math.abs(arrasto.x) > 120f &&
+                                    kotlin.math.abs(arrasto.x) > kotlin.math.abs(arrasto.y) * 2f
+                                ) {
+                                    // Swipe horizontal forte ainda troca folha mesmo com pan vertical.
+                                    paginaAtual.value(if (arrasto.x < 0f) 1 else -1)
                                 } else if (!doisDedos && !moveu) {
                                     val ponto = buffer.first()
                                     val agora = System.currentTimeMillis()
@@ -645,6 +744,15 @@ private fun AreaPdf(
                                             toqueAtual.value(ponto.x, ponto.y)
                                         }
                                     }
+                                } else if (
+                                    !doisDedos &&
+                                    !moveu &&
+                                    modoAgora != ModoDesenho.Ver &&
+                                    modoAgora != ModoDesenho.Lapis &&
+                                    modoAgora != ModoDesenho.Apagar
+                                ) {
+                                    val ponto = buffer.first()
+                                    toqueAtual.value(ponto.x, ponto.y)
                                 }
                             }
                         },
